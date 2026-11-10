@@ -91,13 +91,19 @@ impl Topic {
                 ("Escape", "Close Help or About. Text fields retain their usual editing shortcuts. On macOS, use Command for the Ctrl-based application shortcuts."),
             ],
             Self::Changes => &[
+                ("v0.7.1 · Complete release notes", "Restored missing entries in What's new and added a test that checks the latest entry against the app version."),
+                ("v0.7.0 · Signed Linux updates", "Check for updates from the toolbar. AppImage updates are verified before installation and keep a previous copy for recovery. Debian upgrades are available through the signed APT repository."),
+                ("v0.6.3 · Canvas drag reliability", "Auto-panning stops when the pointer leaves the canvas. Canvas drags cancel when the pointer leaves the window or the window loses focus."),
                 ("v0.6.2 · Canvas selection and panning", "Box-select blocks, pan with the right or middle button and drag to the canvas edge to scroll. Select a subsystem boundary and press Del to remove its rectangle and grouping while keeping its blocks and wires."),
+                ("v0.6.1 · Color in Power Review exports", "PDF and HTML show passed rails in green, failed rails in red, and rails needing more information or review in yellow. Verdict labels remain visible in every format."),
                 ("v0.6.0 · Detailed Power Review export", "Export the selected scope and active mode as PDF, HTML or CSV from Power Review. The report includes rail budgets, source values and the equations used to calculate current and nominal watts."),
+                ("v0.5.4 · Voltage presets and protection planning", "Selecting a voltage preset or changing its tolerance fills the voltage bounds. Darah remembers the preset per port and derives nominal voltage from the midpoint unless overridden. Protection planning uses the connected supply and connector ratings to suggest values."),
                 ("v0.5.3 · Converters and subsystem reviews", "Add dedicated power converters with isolation details. Draw named subsystem boundaries, assign blocks and review boundary interfaces. Export the overall or local review as PDF, HTML, CSV or Markdown."),
                 ("v0.5.2 · Nominal power budgets", "Power Review can show DC demand in watts at nominal voltages. The range-based electrical verdict is unchanged, and converter input draw is broken out separately."),
                 ("v0.5.1 · Canvas layout and exports", "Drag wire segments and corners, resize blocks on the grid, and export diagrams and requirements from File. Ctrl+S confirms a save in the toolbar."),
                 ("v0.5.0 · Port editing and upstream power review", "Place a block with a cursor preview. Use Move ports or Shift-drag a port dot to change its position. External connectors offer recommended protection, and Power Review exposes cascaded demand. The project outline supports renaming, File includes Open recent, and requirements have stable project-local IDs."),
                 ("v0.4.6 · Canvas and requirements", "Requirements comes first in the workspace bar. Place blocks from the Canvas, preview wire drops, move selected ports with a separate handle, and edit rail currents directly from Design checks."),
+                ("v0.4.5 · Connector signal families", "Connectors use logical signal families on the diagram and list physical contacts separately. Adjust port placement in Connector properties or drag a selected port's square handle."),
                 ("v0.4.3 · Specialized blocks in Add block", "Connector, Protection and Signal conversion now appear in the normal Add block selector. Their setup creates the relevant ports/definitions and selects the new block after saving. Shunt protection requires an existing net. Changes remain a discardable draft until saved."),
                 ("v0.4.2 · Quieter checks", "Compact Design checks with small status accents and paired check numbers. Individual results sort by severity in both the checks workspace and connection Inspector. The Inspector keeps its colored cards, and diagram health colors are unchanged."),
                 ("v0.4.1 · Visible design health", "Individual result colors, paired check numbers and selection borders, and health-colored diagram wires and port dots. Selected failed wires stay red. Hover reveals the related result. Project schema remains 9."),
@@ -252,6 +258,16 @@ mod tests {
         assert!(Topic::Files.matches("  SAVE AS  "));
         assert!(!Topic::Shortcuts.matches("chemistry"));
         assert!(Topic::ALL.into_iter().all(|topic| topic.matches("")));
+    }
+
+    #[test]
+    fn release_notes_start_with_the_current_version() {
+        let (heading, _) = Topic::Changes.sections()[0];
+        assert_eq!(
+            heading.split_once(" · ").map(|(version, _)| version),
+            Some(concat!("v", env!("CARGO_PKG_VERSION"))),
+            "Add a What's new entry when changing the app version.",
+        );
     }
 
     #[test]
