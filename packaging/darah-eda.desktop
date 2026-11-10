@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Darah EDA
+Comment=Define electronics systems and review their requirements
+Exec=darah-eda %f
+Icon=darah-eda
+Terminal=false
+Categories=Science;Electronics;
+StartupNotify=true
+StartupWMClass=darah-eda

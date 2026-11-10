@@ -1,0 +1,41 @@
+[package]
+name = "darah-eda"
+version = "0.7.0"
+edition = "2021"
+description = "Functional blocks and requirement integration for electronics design"
+license = "GPL-3.0-only"
+
+[dependencies]
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+rfd = "0.15.4"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+tempfile = "3"
+toml = "0.8"
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+futures-util = "0.3"
+semver = "1"
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "time", "net"] }
+tough = { version = "0.24", features = ["http"] }
+url = "2"
+
+[package.metadata.deb]
+depends = "$auto, libgl1, libxkbcommon0, xdg-desktop-portal, librsvg2-bin"
+recommends = "xdg-desktop-portal-gtk | xdg-desktop-portal-kde"
+section = "electronics"
+priority = "optional"
+extended-description = """
+Define electronics systems with functional blocks, power conversion channels,
+operating modes, and requirements. Inspect rail budgets and open design checks."""
+assets = [
+    ["target/release/darah-eda", "usr/bin/", "755"],
+    ["packaging/darah-eda.desktop", "usr/share/applications/", "644"],
+    ["packaging/darah-eda.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["README.md", "usr/share/doc/darah-eda/README.md", "644"],
+]
+
+[build-dependencies]
+winresource = "0.1"

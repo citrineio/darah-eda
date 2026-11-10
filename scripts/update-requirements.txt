@@ -1,0 +1,2 @@
+tuf==6.0.0
+securesystemslib[crypto]==1.4.0
