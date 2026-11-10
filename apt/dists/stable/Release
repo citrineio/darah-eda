@@ -1,0 +1,12 @@
+Origin: Darah
+Label: Darah
+Suite: stable
+Codename: stable
+Date: Tue, 10 Nov 2026 19:35:16 GMT
+Valid-Until: Tue, 24 Nov 2026 19:35:16 GMT
+Architectures: amd64
+Components: main
+Acquire-By-Hash: yes
+SHA256:
+ ffbf209f3282d89a26ccd33b2bc66250aaa83c36ed4cb47e703a44c52fdc9183 808 main/binary-amd64/Packages
+ 3707a94d8093ecc112e46a96673cbe9f573bd13e886df6f912d20c8430b68e61 522 main/binary-amd64/Packages.gz

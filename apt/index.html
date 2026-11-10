@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><title>Darah APT</title><h1>Darah APT setup</h1><p>Confirm the signing-key fingerprint using the official release page before installing the key. Expected fingerprint <code>8A4BC5E1513B85AD3C9C58CACF9412C5BFA49105</code>.</p><p><a href="https://github.com/citrineio/darah-eda/releases/tag/v0.7.0">Official Darah release</a></p><pre>curl -fLO https://citrineio.github.io/darah-eda/apt/darah-archive-keyring.gpg
+gpg --show-keys --with-fingerprint darah-archive-keyring.gpg
+sudo install -D -m 0644 darah-archive-keyring.gpg /etc/apt/keyrings/darah-archive-keyring.gpg
+sudo tee /etc/apt/sources.list.d/darah.sources &gt;/dev/null &lt;&lt;&#x27;EOF&#x27;
+Types: deb
+URIs: https://citrineio.github.io/darah-eda/apt/
+Suites: stable
+Components: main
+Signed-By: /etc/apt/keyrings/darah-archive-keyring.gpg
+EOF
+sudo apt update
+sudo apt install darah-eda</pre><p>On an enrolled system, use your regular system updater or run <code>sudo apt update</code> followed by <code>sudo apt install --only-upgrade darah-eda</code>.</p>

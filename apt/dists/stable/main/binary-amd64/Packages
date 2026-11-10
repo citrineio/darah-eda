@@ -1,0 +1,18 @@
+Package: darah-eda
+Version: 0.7.0-1
+Architecture: amd64
+Maintainer: Kadhem Alabdulmuhsin <kadhem.alabdulmuhsin@kawnelectro.com>
+Installed-Size: 26184
+Depends: libc6 (>= 2.39), libgl1, librsvg2-bin, libxkbcommon0, xdg-desktop-portal
+Recommends: xdg-desktop-portal-gtk | xdg-desktop-portal-kde
+Filename: pool/main/d/darah-eda/darah-eda_0.7.0_amd64.deb
+Size: 7426684
+MD5sum: 180b739020de4da96578b0eb6e064a84
+SHA1: f209f128703e299465e24c323fa0a598f8b17aff
+SHA256: 45917c40ca2834265516dcc31942dbc5f4befea0abce030467f3406d9810eddb
+Section: electronics
+Priority: optional
+Description: Functional blocks and requirement integration for electronics design
+ Define electronics systems with functional blocks, power conversion channels,
+ operating modes, and requirements. Inspect rail budgets and open design checks.
+
