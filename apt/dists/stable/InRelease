@@ -5,18 +5,18 @@ Origin: Darah
 Label: Darah
 Suite: stable
 Codename: stable
-Date: Tue, 10 Nov 2026 19:35:16 GMT
-Valid-Until: Tue, 24 Nov 2026 19:35:16 GMT
+Date: Tue, 10 Nov 2026 20:07:07 GMT
+Valid-Until: Tue, 24 Nov 2026 20:07:07 GMT
 Architectures: amd64
 Components: main
 Acquire-By-Hash: yes
 SHA256:
- ffbf209f3282d89a26ccd33b2bc66250aaa83c36ed4cb47e703a44c52fdc9183 808 main/binary-amd64/Packages
- 3707a94d8093ecc112e46a96673cbe9f573bd13e886df6f912d20c8430b68e61 522 main/binary-amd64/Packages.gz
+ 15a30f993e34c76a16aee6bc04bf4b2c1f790f23734b9c66fc10a08b12193087 808 main/binary-amd64/Packages
+ 91aa0cf0418fb39aa7bac1196f07755f3ffb253a52d4d88ce3a4054af23bcc2b 523 main/binary-amd64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQSKS8XhUTuFrTycWMrPlBLFv6SRBQUCavNx9AAKCRDPlBLFv6SR
-BV48AQD2O06dYi09P6Ere6/axYJElIZ1MeIwdPNSGGn7wYbmXQEAmaopXaS1UqgC
-6rB0woCx/YMgXPQx4ZUZWKvGOT+uqQg=
-=zS2p
+iHUEARYKAB0WIQSKS8XhUTuFrTycWMrPlBLFv6SRBQUCavN5awAKCRDPlBLFv6SR
+BXOoAP9jG8l6cySyymQAdg9hk8ytGIR2vgtmn6eErHpSNQlQlgD/Q2mzqS2Zukdg
+KzahALd5lgMjde8JMTTtmBv7vmKnIAw=
+=EtuT
 -----END PGP SIGNATURE-----
