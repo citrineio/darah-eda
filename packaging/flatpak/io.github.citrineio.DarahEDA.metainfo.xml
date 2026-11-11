@@ -16,6 +16,9 @@
   <url type="homepage">https://github.com/citrineio/darah-eda</url>
   <url type="bugtracker">https://github.com/citrineio/darah-eda/issues</url>
   <releases>
+    <release version="0.7.3" date="2026-11-11">
+      <description><p>Updater validation release.</p></description>
+    </release>
     <release version="0.7.2" date="2026-11-10">
       <description><p>Adds AppImage update progress and Flatpak packaging.</p></description>
     </release>

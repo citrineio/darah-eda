@@ -91,6 +91,7 @@ impl Topic {
                 ("Escape", "Close Help or About. Text fields retain their usual editing shortcuts. On macOS, use Command for the Ctrl-based application shortcuts."),
             ],
             Self::Changes => &[
+                ("v0.7.3 · Updater validation", "Test release for checking download progress, the optional stable AppImage filename, and restart into the updated build."),
                 ("v0.7.2 · AppImage updates and Flatpak packaging", "AppImage updates show download progress and tell you which version is ready to use. You can opt to switch to an unversioned filename. Flatpak builds receive updates through Flatpak."),
                 ("v0.7.1 · Complete release notes", "Restored missing entries in What's new and added a test that checks the latest entry against the app version."),
                 ("v0.7.0 · Signed Linux updates", "Check for updates from the toolbar. AppImage updates are verified before installation and keep a previous copy for recovery. Debian upgrades are available through the signed APT repository."),

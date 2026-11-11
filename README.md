@@ -1,6 +1,8 @@
-# Darah EDA v0.7.2
+# Darah EDA v0.7.3
 
 Darah is a local desktop workspace for defining electronics systems as functional blocks. It checks declared interface compatibility and shows how each load contributes to a rail budget. The engineering model lives in Rust, and the desktop UI uses egui with eframe.
+
+Darah 0.7.3 is an updater validation release for testing download progress, the optional stable AppImage filename, and restarting into the new version.
 
 Darah 0.7.2 adds AppImage update progress, an optional stable AppImage filename, and Flatpak packaging.
 
