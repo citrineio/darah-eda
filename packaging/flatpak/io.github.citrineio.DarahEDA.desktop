@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Darah EDA
+Comment=Define electronics systems and review their requirements
+Exec=darah-eda
+Icon=io.github.citrineio.DarahEDA
+Terminal=false
+Categories=Science;Electronics;
+StartupNotify=true
+StartupWMClass=io.github.citrineio.DarahEDA

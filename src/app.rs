@@ -577,9 +577,7 @@ impl Darah {
         let extension = format.extension();
         let Some(mut path) = rfd::FileDialog::new().add_filter(format.label(), &[extension])
             .set_file_name(format!("{name}.{extension}")).save_file() else { return; };
-        if path.extension().is_none_or(|ext| !ext.eq_ignore_ascii_case(extension)) {
-            path.set_extension(extension);
-        }
+        apply_export_extension(&mut path, extension);
         match export::write(&self.project, content, format, &path) {
             Ok(()) => { self.status = format!("Exported {}", path.display()); self.error = None; }
             Err(error) => self.error = Some(error),
@@ -590,9 +588,7 @@ impl Darah {
         let extension = format.extension();
         let Some(mut path) = rfd::FileDialog::new().add_filter(format.label(), &[extension])
             .set_file_name(format!("design-review.{extension}")).save_file() else { return; };
-        if path.extension().is_none_or(|ext| !ext.eq_ignore_ascii_case(extension)) {
-            path.set_extension(extension);
-        }
+        apply_export_extension(&mut path, extension);
         match export::write_review(&self.project, self.mode(), &self.findings, self.review_scope, format, &path) {
             Ok(()) => { self.status = "Review exported".into(); self.error = None; }
             Err(error) => self.error = Some(error),
@@ -604,9 +600,7 @@ impl Darah {
         let extension = format.extension();
         let Some(mut path) = rfd::FileDialog::new().add_filter(format.label(), &[extension])
             .set_file_name(format!("power-review.{extension}")).save_file() else { return; };
-        if path.extension().is_none_or(|ext| !ext.eq_ignore_ascii_case(extension)) {
-            path.set_extension(extension);
-        }
+        apply_export_extension(&mut path, extension);
         match export::write_power_review(&self.project, self.mode(), self.review_scope, format, &path) {
             Ok(()) => { self.status = format!("Exported {}", path.display()); self.error = None; }
             Err(error) => self.error = Some(error),
@@ -668,12 +662,9 @@ impl Darah {
             DocumentAction::OpenRecent(path) => self.open_path(&path),
             #[cfg(target_os = "linux")]
             DocumentAction::ApplyUpdate => {
-                match self.updater.install(self.file.as_ref().map(|file| file.path.clone())) {
-                    Ok(()) => {
-                        self.allow_close = true;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    Err(error) => self.error = Some(format!("Could not install the update. {error}")),
+                if self.updater.prepare_restart(self.file.as_ref().map(|file| file.path.clone())) {
+                    self.allow_close = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             }
             DocumentAction::Close => {
@@ -2005,7 +1996,7 @@ impl Darah {
                 self.updater.open(&ctx, true);
             });
             #[cfg(target_os = "linux")]
-            {
+            if !cfg!(feature = "flatpak") {
                 let label = self.updater.badge().map_or_else(|| "Updates".into(), |version| format!("Update to {version}"));
                 if ui.button(label).on_hover_text("Check for Darah updates").clicked() { self.updater.open(&ctx, false); }
             }
@@ -2453,6 +2444,16 @@ impl Darah {
     }
 }
 
+fn apply_export_extension(path: &mut PathBuf, extension: &str) {
+    // A document portal grant refers to the chosen filename, not a sibling.
+    if cfg!(feature = "flatpak") {
+        return;
+    }
+    if path.extension().is_none_or(|ext| !ext.eq_ignore_ascii_case(extension)) {
+        path.set_extension(extension);
+    }
+}
+
 impl eframe::App for Darah {
     #[cfg(target_os = "linux")]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -2461,7 +2462,13 @@ impl eframe::App for Darah {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         #[cfg(target_os = "linux")]
-        self.updater.tick(ctx);
+        {
+            self.updater.tick(ctx);
+            if self.updater.installing() && ctx.input(|input| input.viewport().close_requested()) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                return;
+            }
+        }
         if ctx.input(|input|input.viewport().close_requested()) && self.interface_editor.is_open() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.error=Some("Save or discard the interface editor draft before closing Darah.".into());

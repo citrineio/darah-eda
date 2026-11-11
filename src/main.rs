@@ -30,11 +30,12 @@ mod wires;
 
 fn main() -> eframe::Result<()> {
     let argument = std::env::args_os().nth(1).map(std::path::PathBuf::from);
+    let app_id = if cfg!(feature = "flatpak") { "io.github.citrineio.DarahEDA" } else { "darah-eda" };
     eframe::run_native(
         "Darah EDA",
         eframe::NativeOptions {
             viewport: eframe::egui::ViewportBuilder::default()
-                .with_app_id("darah-eda")
+                .with_app_id(app_id)
                 .with_inner_size([1370.0, 870.0])
                 .with_min_inner_size([900.0, 600.0])
                 .with_icon(eframe::egui::IconData {

@@ -1,9 +1,12 @@
 [package]
 name = "darah-eda"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 description = "Functional blocks and requirement integration for electronics design"
 license = "GPL-3.0-only"
+
+[features]
+flatpak = []
 
 [dependencies]
 eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }

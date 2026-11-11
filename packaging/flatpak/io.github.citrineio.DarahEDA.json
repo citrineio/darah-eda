@@ -1,0 +1,32 @@
+{
+  "id": "io.github.citrineio.DarahEDA",
+  "runtime": "org.freedesktop.Platform",
+  "runtime-version": "26.08",
+  "sdk": "org.freedesktop.Sdk",
+  "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable"],
+  "command": "darah-eda",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=fallback-x11",
+    "--socket=wayland",
+    "--device=dri"
+  ],
+  "build-options": {
+    "append-path": "/usr/lib/sdk/rust-stable/bin"
+  },
+  "modules": [
+    {
+      "name": "darah-eda",
+      "buildsystem": "simple",
+      "build-commands": [
+        "cargo build --frozen --release --features flatpak",
+        "install -Dm755 target/release/darah-eda /app/bin/darah-eda",
+        "install -Dm755 /usr/bin/rsvg-convert /app/bin/rsvg-convert",
+        "install -Dm644 packaging/flatpak/io.github.citrineio.DarahEDA.desktop /app/share/applications/io.github.citrineio.DarahEDA.desktop",
+        "install -Dm644 packaging/flatpak/io.github.citrineio.DarahEDA.metainfo.xml /app/share/metainfo/io.github.citrineio.DarahEDA.metainfo.xml",
+        "install -Dm644 packaging/darah-eda.png /app/share/icons/hicolor/256x256/apps/io.github.citrineio.DarahEDA.png"
+      ],
+      "sources": [{"type": "dir", "path": "source"}]
+    }
+  ]
+}

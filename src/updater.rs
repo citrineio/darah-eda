@@ -4,7 +4,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     env, fs::{self, File, Metadata, OpenOptions}, io::{Read, Write}, os::unix::fs::{MetadataExt, PermissionsExt},
-    path::PathBuf, process::Command, sync::mpsc::{self, Receiver, TryRecvError},
+    path::{Path, PathBuf}, process::Command, sync::mpsc::{self, Receiver, TryRecvError},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tempfile::{NamedTempFile, TempDir};
@@ -22,6 +22,7 @@ struct Config { base: Url, state: PathBuf }
 
 impl Config {
     fn load() -> Option<Self> {
+        if cfg!(feature = "flatpak") { return None; }
         let base = Url::parse(option_env!("DARAH_UPDATE_BASE_URL")?).ok()?;
         if base.scheme() != "https" || base.host_str().is_none() || !base.username().is_empty()
             || base.password().is_some() || base.query().is_some() || base.fragment().is_some()
@@ -169,7 +170,7 @@ struct Staged {
     image: NamedTempFile,
 }
 
-fn stage(config: &Config, runtime: &tokio::runtime::Runtime, selected: Release) -> Result<Staged> {
+fn stage(config: &Config, runtime: &tokio::runtime::Runtime, selected: Release, progress: impl FnMut(Progress)) -> Result<Staged> {
     let destination = appimage_path()?;
     let original = ImageIdentity::from(&fs::symlink_metadata(&destination)?);
     let image = tempfile::Builder::new().prefix(".darah-update-")
@@ -181,25 +182,33 @@ fn stage(config: &Config, runtime: &tokio::runtime::Runtime, selected: Release) 
             if release(&repo).await? != selected || selected.version()? <= current_version() {
                 return Err("The stable release changed. Check for updates again.".into());
             }
-            let image = download_image(&repo, &selected, image).await?;
+            let image = download_image(&repo, &selected, image, progress).await?;
             Ok(Staged { destination, original, image })
         }).await?
     })
 }
 
-async fn download_image(repo: &Repository, selected: &Release, mut image: NamedTempFile) -> Result<NamedTempFile> {
+async fn download_image(repo: &Repository, selected: &Release, mut image: NamedTempFile, mut progress: impl FnMut(Progress)) -> Result<NamedTempFile> {
     let name = TargetName::new(selected.image_name()?)?;
     let (_, metadata) = repo.all_targets().find(|(key, _)| *key == &name)
         .ok_or("No signed AppImage is available for this architecture.")?;
     if metadata.length > MAX_IMAGE { return Err("The AppImage exceeds the update size limit.".into()); }
+    progress(Progress::Downloading { bytes: 0, total: metadata.length });
     let stream = repo.read_target(&name).await?.ok_or("The signed AppImage is missing.")?;
     pin_mut!(stream);
     let mut bytes = 0u64;
+    let mut last_update = Instant::now();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         bytes = bytes.saturating_add(chunk.len() as u64);
         if bytes > metadata.length { return Err("The AppImage exceeds its signed size.".into()); }
         image.write_all(&chunk)?;
+        if bytes == metadata.length {
+            progress(Progress::Verifying);
+        } else if last_update.elapsed() >= Duration::from_millis(80) {
+            progress(Progress::Downloading { bytes, total: metadata.length });
+            last_update = Instant::now();
+        }
     }
     if bytes != metadata.length { return Err("The AppImage does not match its signed size.".into()); }
     validate_image(&mut image.reopen()?)?;
@@ -207,8 +216,22 @@ async fn download_image(repo: &Repository, selected: &Release, mut image: NamedT
     Ok(image)
 }
 
+fn stable_image_name() -> String {
+    format!("Darah-EDA-{}.AppImage", env::consts::ARCH)
+}
+
+fn rename_image(path: &Path, destination: &Path) -> std::io::Result<()> {
+    // A hard link creates the new name without ever replacing an existing file.
+    fs::hard_link(path, destination)?;
+    if let Err(error) = fs::remove_file(path) {
+        let _ = fs::remove_file(destination);
+        return Err(error);
+    }
+    Ok(())
+}
+
 impl Staged {
-    fn install(self) -> Result<PathBuf> {
+    fn install(self, rename: bool) -> Result<(PathBuf, Option<String>)> {
         let directory = self.destination.parent().ok_or("Missing AppImage directory.")?;
         let current = File::open(&self.destination)?;
         current.try_lock().map_err(|e| format!("Another updater is using this AppImage. {e}"))?;
@@ -235,9 +258,19 @@ impl Staged {
         fs::rename(previous, backup)?;
         let dir = File::open(directory)?;
         dir.sync_all()?;
-        self.image.persist(&self.destination)?;
+        self.image.as_file().try_lock()?;
+        let _installed = self.image.persist(&self.destination)?;
+        let stable = self.destination.with_file_name(stable_image_name());
+        let result = if rename && self.destination != stable {
+            match rename_image(&self.destination, &stable) {
+                Ok(()) => (stable, None),
+                Err(error) => (self.destination, Some(format!("The filename could not be changed: {error}"))),
+            }
+        } else {
+            (self.destination, None)
+        };
         if let Err(error) = dir.sync_all() { eprintln!("Darah installed the update but could not sync the directory: {error}"); }
-        Ok(self.destination)
+        Ok(result)
     }
 }
 
@@ -253,7 +286,19 @@ impl Default for Preferences {
 
 fn now() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() }
 
-enum Event { Checked(Option<Release>), Staged(Staged), Error(String) }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Progress {
+    Downloading { bytes: u64, total: u64 },
+    Verifying,
+}
+
+enum Event {
+    Checked(Option<Release>),
+    Progress(Progress),
+    Staged(Staged),
+    Installed(PathBuf, Option<String>),
+    Error(String),
+}
 
 pub(crate) struct Updater {
     config: Option<Config>,
@@ -264,6 +309,10 @@ pub(crate) struct Updater {
     staged: Option<Staged>,
     work: Option<Receiver<Event>>,
     message: String,
+    progress: Option<Progress>,
+    rename: bool,
+    installing: bool,
+    installed: Option<PathBuf>,
     restart: Option<(PathBuf, Option<PathBuf>)>,
 }
 
@@ -273,7 +322,7 @@ impl Updater {
         let prefs = config.as_ref().and_then(|c| fs::read(c.state.join("preferences.json")).ok())
             .and_then(|data| serde_json::from_slice(&data).ok()).unwrap_or_default();
         Self { config, prefs, open: false, last_check: None, available: None, staged: None, work: None,
-            message: String::new(), restart: None }
+            message: String::new(), progress: None, rename: false, installing: false, installed: None, restart: None }
     }
 
     fn save_preferences(&mut self) {
@@ -291,9 +340,9 @@ impl Updater {
 
     fn start(&mut self, ctx: &egui::Context, download: Option<Release>) {
         let Some(config) = self.config.clone() else { return; };
-        if self.work.is_some() || self.staged.is_some() { return; }
+        if self.work.is_some() || self.staged.is_some() || self.installed.is_some() { return; }
         self.last_check = Some(Instant::now());
-        self.message = if download.is_some() { "Downloading and verifying the AppImage…" } else { "Checking for updates…" }.into();
+        self.message = if download.is_some() { "Preparing download…" } else { "Checking for updates…" }.into();
         let (send, receive) = mpsc::channel();
         self.work = Some(receive);
         let ctx = ctx.clone();
@@ -301,7 +350,10 @@ impl Updater {
             let result = (|| -> Result<Event> {
                 let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
                 match download {
-                    Some(selected) => Ok(Event::Staged(stage(&config, &runtime, selected)?)),
+                    Some(selected) => Ok(Event::Staged(stage(&config, &runtime, selected, |progress| {
+                        let _ = send.send(Event::Progress(progress));
+                        ctx.request_repaint();
+                    })?)),
                     None => Ok(Event::Checked(check(&config, &runtime)?)),
                 }
             })();
@@ -311,28 +363,38 @@ impl Updater {
     }
 
     pub(crate) fn tick(&mut self, ctx: &egui::Context) {
-        if let Some(work) = &self.work {
+        while let Some(work) = &self.work {
             let event = match work.try_recv() {
-                Ok(event) => Some(event),
-                Err(TryRecvError::Empty) => None,
-                Err(TryRecvError::Disconnected) => Some(Event::Error("The update worker stopped.".into())),
-            };
-            if let Some(event) = event {
-                self.work = None;
-                match event {
-                    Event::Checked(release) => {
-                        self.message = if release.is_some() { "" } else { "Darah is up to date." }.into();
-                        self.available = release;
-                    }
-                    Event::Staged(staged) => {
-                        self.staged = Some(staged);
-                        self.message = "Verified. Save your work before restarting.".into();
-                    }
-                    Event::Error(error) => self.message = format!("Update failed. {error}"),
+                Ok(Event::Progress(progress)) => {
+                    self.message.clear();
+                    self.progress = Some(progress);
+                    continue;
                 }
+                Ok(event) => event,
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => Event::Error("The update worker stopped.".into()),
+            };
+            self.work = None;
+            self.progress = None;
+            self.installing = false;
+            match event {
+                Event::Checked(release) => {
+                    self.message = if release.is_some() { "" } else { "Darah is up to date." }.into();
+                    self.available = release;
+                }
+                Event::Staged(staged) => {
+                    self.staged = Some(staged);
+                    self.message = "AppImage verified and ready to install.".into();
+                }
+                Event::Installed(path, warning) => {
+                    self.installed = Some(path);
+                    self.message = warning.unwrap_or_default();
+                }
+                Event::Error(error) => self.message = format!("Update failed. {error}"),
+                Event::Progress(_) => unreachable!(),
             }
         }
-        if self.config.is_some() && self.prefs.automatic && self.staged.is_none() && self.work.is_none() {
+        if self.config.is_some() && self.prefs.automatic && self.staged.is_none() && self.work.is_none() && self.installed.is_none() {
             let elapsed = self.last_check.map_or(DAILY, |time| time.elapsed());
             if elapsed >= DAILY { self.start(ctx, None); }
             ctx.request_repaint_after(DAILY.saturating_sub(elapsed).max(Duration::from_secs(1)));
@@ -346,16 +408,27 @@ impl Updater {
 
     pub(crate) fn badge(&self) -> Option<&str> {
         let available = self.available.as_ref()?;
-        (self.staged.is_some() || (self.prefs.remind_after <= now()
+        (self.installed.is_some() || self.staged.is_some() || (self.prefs.remind_after <= now()
             && self.prefs.skipped.as_deref() != Some(available.version.as_str()))).then_some(available.version.as_str())
     }
 
     pub(crate) fn show(&mut self, ctx: &egui::Context) -> bool {
         if !self.open { return false; }
         let mut open = true;
-        let mut install = false;
+        let mut restart = false;
         egui::Window::new("Updates").open(&mut open).default_width(450.0).show(ctx, |ui| {
-            ui.label(format!("Installed version {}", env!("CARGO_PKG_VERSION")));
+            ui.label(format!("Running version {}", env!("CARGO_PKG_VERSION")));
+            if let Some(path) = &self.installed {
+                let version = self.available.as_ref().map(|release| release.version.as_str()).unwrap_or("the update");
+                ui.label(format!("Installed v{version} at {}", path.display()));
+                if !self.message.is_empty() { ui.label(&self.message); }
+                if ui.button(format!("Restart to use v{version}")).clicked() { restart = true; }
+                return;
+            }
+            if self.installing {
+                ui.horizontal(|ui| { ui.spinner(); ui.label("Installing the verified AppImage…"); });
+                return;
+            }
             let Some(base) = self.config.as_ref().map(|config| config.base.clone()) else {
                 ui.label("Updates are unconfigured in this build.");
                 return;
@@ -365,14 +438,30 @@ impl Updater {
                 self.start(ctx, None);
             }
             if !self.message.is_empty() { ui.label(&self.message); }
+            match self.progress {
+                Some(Progress::Downloading { bytes, total }) => {
+                    ui.label(format!("Downloading AppImage · {bytes} / {total} bytes"));
+                    ui.add(egui::ProgressBar::new(bytes as f32 / total.max(1) as f32).show_percentage());
+                }
+                Some(Progress::Verifying) => {
+                    ui.horizontal(|ui| { ui.spinner(); ui.label("Verifying the AppImage…"); });
+                }
+                None => {}
+            }
             if let Some(available) = self.available.clone() {
                 ui.separator();
                 ui.heading(format!("Darah {} is available", available.version));
                 egui::ScrollArea::vertical().max_height(190.0).show(ui, |ui| { ui.label(&available.notes); });
-                if self.staged.is_some() {
-                    if ui.button("Install and restart…").clicked() { install = true; }
+                if let Some(staged) = &self.staged {
+                    let name = stable_image_name();
+                    if staged.destination.file_name().is_some_and(|current| current != name.as_str()) {
+                        ui.checkbox(&mut self.rename, format!("Rename to {name}"))
+                            .on_hover_text("Existing shortcuts may need to be updated if you rename the file.");
+                    }
+                    if ui.button("Install update").clicked() { self.install(ctx); }
                     if ui.button("Discard download").clicked() {
                         self.staged = None;
+                        self.rename = false;
                         self.message.clear();
                     }
                 } else {
@@ -402,16 +491,34 @@ impl Updater {
                 }
             }
         });
-        self.open = open && !install;
-        install
+        self.open = open;
+        restart
     }
 
-    pub(crate) fn install(&mut self, project: Option<PathBuf>) -> Result<()> {
-        let staged = self.staged.take().ok_or("No verified update is staged.")?;
-        let destination = staged.install()?;
-        self.restart = Some((destination, project));
-        Ok(())
+    fn install(&mut self, ctx: &egui::Context) {
+        let Some(staged) = self.staged.take() else { return; };
+        let rename = std::mem::take(&mut self.rename);
+        self.installing = true;
+        let (send, receive) = mpsc::channel();
+        self.work = Some(receive);
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let event = match staged.install(rename) {
+                Ok((path, warning)) => Event::Installed(path, warning),
+                Err(error) => Event::Error(error.to_string()),
+            };
+            let _ = send.send(event);
+            ctx.request_repaint();
+        });
     }
+
+    pub(crate) fn prepare_restart(&mut self, project: Option<PathBuf>) -> bool {
+        let Some(path) = &self.installed else { return false; };
+        self.restart = Some((path.clone(), project));
+        true
+    }
+
+    pub(crate) fn installing(&self) -> bool { self.installing }
 
     pub(crate) fn restart_on_exit(&mut self) {
         let Some((destination, project)) = self.restart.take() else { return; };
@@ -452,11 +559,42 @@ mod tests {
         let stage = |bytes| staged(path.clone(), ImageIdentity::from(&fs::metadata(&path).unwrap()), bytes);
         let first = stage(&new);
         let stale = stage(&old);
-        assert_eq!(first.install()?, path);
-        assert!(stale.install().is_err());
+        assert_eq!(first.install(false)?.0, path);
+        assert!(stale.install(false).is_err());
         assert_eq!(fs::read(&path)?, new);
         assert_eq!(fs::read(folder.path().join("Darah.AppImage.previous"))?, old);
         Ok(())
+    }
+
+    #[test]
+    fn optional_rename_preserves_backup_and_never_overwrites_another_appimage() -> Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("Darah-EDA-0.7.0.AppImage");
+        let stable = folder.path().join(stable_image_name());
+        let old = image(b"old");
+        let new = image(b"new");
+        fs::write(&path, &old)?;
+        fs::write(&stable, b"occupied")?;
+        let stage = |bytes| staged(path.clone(), ImageIdentity::from(&fs::metadata(&path).unwrap()), bytes);
+        let (actual, warning) = stage(&new).install(true)?;
+        assert_eq!(actual, path);
+        assert!(warning.is_some());
+        assert_eq!(fs::read(&stable)?, b"occupied");
+        assert_eq!(fs::read(&path)?, new);
+        fs::remove_file(&stable)?;
+        let (actual, warning) = stage(&old).install(true)?;
+        assert_eq!(actual, stable);
+        assert!(warning.is_none());
+        assert!(!path.exists());
+        assert_eq!(fs::read(stable)?, old);
+        assert_eq!(fs::read(folder.path().join("Darah-EDA-0.7.0.AppImage.previous"))?, new);
+        Ok(())
+    }
+
+    #[cfg(feature = "flatpak")]
+    #[test]
+    fn flatpak_uses_only_its_package_manager_for_updates() {
+        assert!(Config::load().is_none());
     }
 
     #[test]
@@ -472,8 +610,14 @@ mod tests {
         runtime.block_on(async {
             let repo = config.repository(&root).await?;
             let selected = release(&repo).await?;
-            let good = download_image(&repo, &selected, NamedTempFile::new_in(folder.path())?).await?;
+            let mut progress = Vec::new();
+            let good = download_image(&repo, &selected, NamedTempFile::new_in(folder.path())?, |event| {
+                progress.push(event);
+            }).await?;
             validate_image(&mut good.reopen()?)?;
+            let total = good.as_file().metadata()?.len();
+            assert_eq!(progress.first(), Some(&Progress::Downloading { bytes: 0, total }));
+            assert_eq!(progress.last(), Some(&Progress::Verifying));
             let filename = selected.image_name()?;
             let copy = folder.path().join("tampered/tuf");
             fs::create_dir_all(copy.join("targets"))?;
@@ -487,7 +631,7 @@ mod tests {
             let metadata_base = config.base.join("tuf/metadata/")?;
             let target_base = Url::from_directory_path(copy.join("targets")).unwrap();
             let repo = RepositoryLoader::new(&root, metadata_base, target_base).load().await?;
-            assert!(download_image(&repo, &selected, NamedTempFile::new_in(folder.path())?).await.is_err());
+            assert!(download_image(&repo, &selected, NamedTempFile::new_in(folder.path())?, |_| {}).await.is_err());
             if let Some(previous) = env::var_os("DARAH_TEST_PREVIOUS_SITE") {
                 let base = Url::from_directory_path(PathBuf::from(previous)).map_err(|_| "Use an absolute previous site path")?;
                 let previous = Config { base, state: config.state };

@@ -1,121 +1,72 @@
-# Publishing Darah updates from GitHub
+# Publishing Darah updates
 
-GitHub Releases holds the public downloads and corresponding source. GitHub
-Pages serves a separate, signed TUF repository and signed APT archive. The
-site can use a GitHub Pages address or a Darah-controlled domain. Once that URL
-ships in a binary, keep it live across repository or hosting changes.
+GitHub Releases holds the AppImage and Flatpak downloads and matching source.
+GitHub Pages serves the signed TUF feed for AppImage. Keep the feed URL live
+once a published AppImage embeds it. Flatpak builds hide Darah’s self-updater.
+Flatpak manages upgrades for installations from a configured remote. Install
+a newer bundle manually for a standalone bundle without an update remote.
 
-Darah checks on startup and daily while open. **Help → Check for Updates**
-also works when automatic checks are off. AppImage downloads require consent.
-Installing an AppImage update uses the regular unsaved-work prompt, stages on
-the same filesystem, and keeps `<file>.previous` for manual recovery. A
-non-writable location or filesystem that cannot create the backup falls back
-to downloading the release from the website. APT updates stay under the system
-package manager and its upgrade policy.
+## Build and qualify the release
 
-## One-time setup
-
-1. Create the public source repository and a separate `updates` branch for the
-   generated site. In **Settings → Pages**, select **Deploy from a branch**,
-   then `updates` and `/ (root)`. The generated tree contains `.nojekyll`.
-2. On the release machine, install Python 3, GnuPG, `gpgv` and `dpkg-dev`. Install the
-   publishing dependencies in a virtual environment outside the source tree.
-3. Generate TUF keys and choose a dedicated APT signing key in your local GPG
-   keyring. Keep the private keys outside Git and back them up securely. The
-   publisher creates distinct root, targets, snapshot and timestamp keys.
-   Store `root.pem` offline after initialization. The public root is the only
-   TUF key file that belongs in the Darah source tree.
+Use the committed source version on `main`. Install current stable Rust,
+Python 3.11+, Flatpak, Flatpak Builder and the appropriate linuxdeploy AppImage.
+The release script reads linuxdeploy from `LINUXDEPLOY`, the source folder, its
+parent, or the executable search path.
 
 ```sh
-python3 -m venv ../darah-publisher
-../darah-publisher/bin/pip install -r scripts/update-requirements.txt
-../darah-publisher/bin/python scripts/publish-updates.py init ../darah-update-keys
-cp ../darah-update-keys/root.json packaging/update-root.json
-export DARAH_UPDATE_BASE_URL=https://OWNER.github.io/REPO/
-gpg --list-secret-keys --with-fingerprint
+flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+python3 scripts/release.py build
 ```
 
-Create a signing key with `gpg --full-generate-key` if you do not have a
-dedicated APT key. Record its **full fingerprint** for the publisher and the
-release notes. Commit the public TUF root and `Cargo.lock`, and protect the
-source and deployment branches. Set `DARAH_UPDATE_BASE_URL` in each release
-build environment. Without a valid HTTPS URL and embedded public root, Darah
-keeps update checks disabled. Test the first signed feed on a private test
-branch/site or disposable local repository before building public binaries
-with the production trust root. Use a separate `XDG_STATE_HOME` for test builds
-so their update history stays separate.
+- Launch a previously published AppImage and upgrade it through the signed
+  feed. The progress display is provided by the version you start from, so
+  exercise the new updater by starting from 0.7.2 or later. Check the default
+  filename behavior and the opt-in rename separately. Confirm the compiled
+  version in About after restart and reopen an existing project. Verify that
+  the `.previous` backup is launchable.
+- Install the Flatpak bundle and open an existing project through the file
+  chooser. Edit it, save in place, relaunch and reopen it. Export a diagram
+  and a power review to PDF outside the sandbox through the Save dialog.
+  Confirm that the Help menu has no Darah update action. Run the same checks
+  against a remote installation before advertising automatic Flatpak upgrades.
 
-## Publish a release
+For an AppImage release before Flatpak is ready, use
+`python3 scripts/release.py build --appimage-only` and
+`python3 scripts/release.py publish --appimage-only`. This mode keeps the
+existing APT landing page and packages available while publishing the new
+AppImage feed. It stores prepared artifacts separately so a retry uses the
+same package selection.
 
-1. Build both installers from the same source tag. `scripts/build-deb.sh` and
-   `scripts/build-appimage.sh` identify their package format to Darah at build
-   time. For every architecture you ship, put both packages in one artifact
-   folder. Name each AppImage
-   `darah-eda-VERSION-linux-x86_64.AppImage` or
-   `darah-eda-VERSION-linux-aarch64.AppImage`. The publisher reads Debian
-   package versions and architectures from the packages themselves. Put release
-   notes outside the artifact folder.
-2. Upload the installers and matching source to GitHub Releases under the
-   `vVERSION` tag. Include the APT signing-key fingerprint so users can check
-   the bootstrap key against the release. Keep previous releases downloadable.
-3. Build and review the signed Pages tree. Replace the Pages branch contents
-   with that complete generated tree, keeping its Git metadata, and push one
-   commit. Publish the site after the matching GitHub Release is available.
+## Publish and refresh
+
+The release helper expects the existing TUF keys and publisher virtual
+environment next to the source checkout. Set `DARAH_UPDATE_KEYS` and
+`DARAH_PUBLISHER_PYTHON` if you keep them elsewhere. Keep the private keys
+outside the checkout and the root signing key offline. An already configured
+feed must retain its root and metadata history.
 
 ```sh
-../darah-publisher/bin/python scripts/publish-updates.py publish \
-  --keys ../darah-update-keys --apt-key YOUR_FULL_GPG_FINGERPRINT \
-  --base "$DARAH_UPDATE_BASE_URL" --github OWNER/REPO \
-  --version 0.7.0 --notes ../release-notes.txt --artifacts ../release-assets \
-  --output ../darah-pages-next
+python3 scripts/release.py publish --notes ../release-notes.md
+python3 scripts/release.py refresh
 ```
 
-For every release after the first, add `--previous ../darah-pages-current`
-pointing to the currently deployed signed tree. Metadata versions must advance.
-The publisher verifies the prior signed metadata and builds the new site in a
-fresh directory. Never reset the version counters for an existing feed. The
-branch workflow is limited to 100 MiB per file and the publisher caps the
-whole tree below the GitHub Pages site limit.
+The helper builds and checksums both artifacts before it publishes the GitHub
+release or deploys the updated feed. The Pages build verifies the previous
+TUF metadata and advances its version counters. It signs only AppImages as
+application targets. The former APT landing page becomes a migration page on
+publish. Existing release tags and the last APT archive remain available.
+Retired APT indexes expire on their original schedule, so enrolled users
+should remove the Darah source when they migrate.
 
-Debian users can download a standalone `.deb` or explicitly follow the
-generated `apt/` setup page to enroll. The initial key must match the
-fingerprint published through a trusted channel. Enrolled systems use APT
-with a repository-specific `Signed-By` key. Darah does not change system
-unattended-upgrades settings.
+Refresh and deploy the TUF feed at least weekly. The timestamp expires after
+14 days. Plan root rotation before expiry and test it with an older binary.
+The publisher supports manual builds with
+`python scripts/publish-updates.py publish --help` and
+`python scripts/publish-updates.py refresh --help`. Always pass the last
+deployed tree as `--previous` for an existing feed. Only a new feed should
+generate a fresh trust root with `scripts/publish-updates.py init`.
 
-## Keep the feed fresh
-
-Refresh and republish at least weekly, even without a new app release. Both the
-TUF timestamp and APT index expire after 14 days. The publisher uses the three
-non-root TUF keys and the APT key for a refresh. The refresh keeps the existing
-signed target hashes and APT package indexes, while incrementing metadata
-versions and extending expiry.
-
-```sh
-../darah-publisher/bin/python scripts/publish-updates.py refresh \
-  --keys ../darah-update-keys --apt-key YOUR_FULL_GPG_FINGERPRINT \
-  --base "$DARAH_UPDATE_BASE_URL" --github OWNER/REPO \
-  --previous ../darah-pages-current --output ../darah-pages-next
-```
-
-Retain the latest trusted site tree locally. Plan the TUF root rotation before
-its three-year expiry and test the signed root transition with an older binary.
-For an APT key rotation, distribute the replacement key to enrolled clients
-while the old key is still trusted. These are operator procedures. The publisher
-does not automatically rotate keys or push to GitHub.
-
-## Verify before enabling public updates
-
-Test a real AppImage upgrade from one built release to the next. Include a
-read-only install, a corrupt or interrupted download, an unsaved project and
-two running copies. Confirm the updated build can reopen the project and
-`<file>.previous` remains launchable. Test APT enrollment and an upgrade from
-an existing Debian package on each supported distro. Confirm both packages
-open the correct updater UI and installed projects stay in place.
-
-The optional Rust feed test checks a publisher-generated local repository
-and deliberately corrupts its AppImage target. Run it with the absolute
-path to the generated site and an AppImage target for the test machine's CPU.
+To exercise signature and target verification against a local fixture:
 
 ```sh
 DARAH_TEST_UPDATE_SITE=/absolute/path/to/generated/site \

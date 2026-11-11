@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.citrineio.DarahEDA</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>Darah EDA</name>
+  <summary>Plan electronics systems with functional blocks and live design checks</summary>
+  <developer id="io.github.citrineio">
+    <name>Citrine IO</name>
+  </developer>
+  <description>
+    <p>Darah EDA is a desktop workspace for planning electronics systems before schematic design. Draw functional blocks, connect power and signal interfaces, and trace design decisions to requirements.</p>
+    <p>Review power budgets and interface compatibility as the design changes. Save projects as readable TOML files and export diagrams, requirements, and reviews for sharing.</p>
+  </description>
+  <launchable type="desktop-id">io.github.citrineio.DarahEDA.desktop</launchable>
+  <url type="homepage">https://github.com/citrineio/darah-eda</url>
+  <url type="bugtracker">https://github.com/citrineio/darah-eda/issues</url>
+  <releases>
+    <release version="0.7.2" date="2026-11-10">
+      <description><p>Adds AppImage update progress and Flatpak packaging.</p></description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1" />
+</component>
