@@ -492,8 +492,7 @@ def main():
             version_tuple(version)
             if version_tuple(version) < version_tuple(feed_version): raise RuntimeError('The requested version is older than the signed feed.')
             release.set_version(source, version)
-            notes = source / f'docs/releases/{version}.md'; notes.parent.mkdir(parents=True, exist_ok=True)
-            if not notes.is_file(): notes.write_text(f'Darah EDA v{version}\n\n- Consolidate release and publishing into two self-contained scripts.\n- Bundle glibc, its loader, windowing libraries, and the PDF/PNG renderer.\n- Reuse verified builds and replace running AppImages atomically.\n')
+            notes = source / f'docs/releases/{version}.md'
             stage_project_files(source)
             if execute('git', 'diff', '--cached', '--name-only', capture=True).strip(): execute('git', 'commit', '-m', f'Release Darah EDA v{version}')
             commit = execute('git', 'rev-parse', 'HEAD', capture=True).strip()

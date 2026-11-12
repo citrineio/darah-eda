@@ -350,6 +350,42 @@ def source_directory(path):
     return source
 
 
+def prepare_release_notes(source, version):
+    """Keep in-app history and release notes in sync, including resumed releases."""
+    help_path = source / 'src/help.rs'
+    help_text = help_path.read_text()
+    section = re.search(r'(?m)^(?P<indent>[ \t]*)Self::Changes\s*=>\s*&\[\s*\n', help_text)
+    if not section:
+        raise RuntimeError("Cannot locate What's new in src/help.rs; no version files were changed.")
+    entries = help_text[section.end():].split('],', 1)[0]
+    headings = re.findall(r'\(\s*"v(\d+\.\d+\.\d+) · ', entries)
+    if not headings:
+        raise RuntimeError("Cannot read What's new headings; no version files were changed.")
+    if tuple(map(int, headings[0].split('.'))) > tuple(map(int, version.split('.'))):
+        raise RuntimeError("What's new already contains a newer version; no version files were changed.")
+    if version in headings and headings[0] != version:
+        raise RuntimeError("The requested version is not the newest What's new entry; no version files were changed.")
+    notes = source / f'docs/releases/{version}.md'
+    if version == '0.7.4':
+        title = 'Portable Linux AppImage'
+        body = ('AppImage builds include a private glibc runtime and its matching loader, '
+                'windowing libraries, and the PNG/PDF renderer. The bundled runtime supports '
+                'systems whose glibc is older than the build host.')
+    else:
+        title = 'Maintenance release'
+        body = 'Maintenance release. See the release notes for details.'
+    if headings[0] != version:
+        # JSON escaping is valid for these ordinary Rust string literals.
+        entry = section['indent'] + '    (' + json.dumps('v' + version + ' · ' + title, ensure_ascii=False)
+        entry += ', ' + json.dumps(body, ensure_ascii=False) + '),\n'
+        help_text = help_text[:section.end()] + entry + help_text[section.end():]
+        help_path.write_text(help_text)
+    if not notes.is_file():
+        notes.parent.mkdir(parents=True, exist_ok=True)
+        notes.write_text(f'Darah EDA v{version}\n\n{body}\n')
+    return notes
+
+
 def set_version(source, version):
     if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
         raise RuntimeError('Use a plain release version such as 0.7.4.')
@@ -362,6 +398,7 @@ def set_version(source, version):
         lambda m: m[1] + version + m[2], lock.read_text(), count=1)
     if count != 1: raise RuntimeError('Cannot locate Darah in Cargo.lock.')
     tomllib.loads(text); tomllib.loads(lock_text)
+    prepare_release_notes(source, version)
     manifest.write_text(text); lock.write_text(lock_text)
 
 
