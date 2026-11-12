@@ -91,6 +91,7 @@ impl Topic {
                 ("Escape", "Close Help or About. Text fields retain their usual editing shortcuts. On macOS, use Command for the Ctrl-based application shortcuts."),
             ],
             Self::Changes => &[
+                ("v0.7.6 · Maintenance release", "Maintenance release. See the release notes for details."),
                 ("v0.7.5 · Design Review export colors", "PDF and HTML Design Review exports use the same green, red, and yellow status colors as Power Review. Whole-design and subsystem reports retain written verdicts, evidence, and status colors across wrapped PDF rows and pages."),
                 ("v0.7.4 · Portable Linux AppImage", "AppImage builds include a private glibc runtime and its matching loader, windowing libraries, and the PNG/PDF renderer. The bundled runtime supports systems whose glibc is older than the build host."),
                 ("v0.7.3 · Updater validation", "Test release for checking download progress, the optional stable AppImage filename, and restart into the updated build."),

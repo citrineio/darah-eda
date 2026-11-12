@@ -35,7 +35,7 @@ ROLES = ('root', 'targets', 'snapshot', 'timestamp')
 VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)')
 ARCHES = {'x86_64': 62, 'aarch64': 183}
 SIGNING_PACKAGES = ['tuf==6.0.0', 'securesystemslib[crypto]==1.4.0']
-RETIRED = ['scripts/build-appimage.sh', 'scripts/bundle-appimage-runtime.py', 'scripts/publish-updates.py']
+RETIRED = ['scripts/build-appimage.sh', 'scripts/bundle-appimage-runtime.py', 'scripts/publish-updates.py', 'scripts/build-flatpak.sh']
 
 
 def execute(*args, capture=False, **kwargs):
@@ -153,7 +153,15 @@ def git_tag_commit(tag):
     return refs.get(f'refs/tags/{tag}^{{}}', refs.get(f'refs/tags/{tag}'))
 
 
-def github_release(tag, commit, artifact, notes):
+def github_release(tag, commit, artifacts, notes):
+    artifacts = [Path(path) for path in artifacts]
+    expected = {f'darah-eda-{tag.removeprefix("v")}-linux-{platform.machine()}{suffix}'
+        for suffix in ['.AppImage', '.flatpak']}
+    if len(artifacts) != 2 or {path.name for path in artifacts} != expected:
+        raise RuntimeError('A complete release requires the matching AppImage and Flatpak bundle.')
+    for artifact in artifacts:
+        if not artifact.is_file() or not artifact.stat().st_size:
+            raise RuntimeError(f'Missing release artifact: {artifact.name}')
     def gh(*args, **kwargs): return execute('gh', 'release', *args, '--repo', REPO, **kwargs)
     def view():
         try: return json.loads(gh('view', tag, '--json', 'assets,isDraft,isPrerelease,targetCommitish', capture=True, stderr=subprocess.PIPE))
@@ -162,23 +170,26 @@ def github_release(tag, commit, artifact, notes):
             raise RuntimeError((error.stderr or str(error)).strip())
     found = view()
     if found is None:
-        gh('create', tag, '--target', commit, '--draft', '--title', f'Darah EDA {tag}', '--notes-file', str(notes), str(artifact))
+        gh('create', tag, '--target', commit, '--draft', '--title', f'Darah EDA {tag}', '--notes-file', str(notes), *map(str, artifacts))
         found = view()
     if found is None: raise RuntimeError('The release draft is not visible yet. Rerun the same command.')
     if found['isPrerelease']: raise RuntimeError('The existing release is marked as a prerelease.')
     if (git_tag_commit(tag) or found['targetCommitish']) != commit: raise RuntimeError('The existing release points to a different source commit.')
     names = {item['name'] for item in found['assets']}
-    if names - {artifact.name}: raise RuntimeError('The release already contains unexpected assets; it was left unchanged.')
-    if artifact.name not in names: gh('upload', tag, str(artifact))
+    if names - expected: raise RuntimeError('The release already contains unexpected assets; it was left unchanged.')
+    for artifact in artifacts:
+        if artifact.name not in names: gh('upload', tag, str(artifact))
     with tempfile.TemporaryDirectory() as name:
-        gh('download', tag, '--dir', name, '--pattern', artifact.name)
-        if file_hash(Path(name) / artifact.name) != file_hash(artifact): raise RuntimeError('Uploaded AppImage checksum does not match the verified build.')
+        for artifact in artifacts:
+            gh('download', tag, '--dir', name, '--pattern', artifact.name)
+            if file_hash(Path(name) / artifact.name) != file_hash(artifact):
+                raise RuntimeError(f'Uploaded artifact checksum does not match the verified build: {artifact.name}')
     if found['isDraft']: gh('edit', tag, '--draft=false')
     if git_tag_commit(tag) != commit: raise RuntimeError('The public release tag does not match the built commit.')
 
 
 def install_scripts(source, release, release_path):
-    documentation = '''# Build and publish Darah AppImages
+    documentation = '''# Build and publish Darah AppImage and Flatpak
 
 Use the installed command:
 
@@ -186,10 +197,15 @@ Use the installed command:
     darah-develop --publish
     darah-develop --help
 
-The release command tests and builds locally. The publish command handles the
-version, commits, build reuse, GitHub release, and signed update feed. It locates
+Both commands build AppImage and Flatpak together. The release command tests
+locally. The publish command handles the version, commits, build reuse,
+both GitHub assets, and signed update feed. It locates
 the existing signing keys and creates its Python environment automatically.
 Use --publish directly when the goal is to publish; a separate build is optional.
+Both artifacts must pass their checks before the GitHub release becomes public.
+Flatpak setup adds the user Flathub remote and installs missing manifest runtime,
+SDK, and Rust extension automatically. The first setup may download several GB.
+Both artifacts are written to target/dist/VERSION/ and verified builds are reused.
 
 The command detects and remembers the project. Use --project PATH to select one
 explicitly, --release-version 0.7.4 to override the version, or --keys PATH to
@@ -208,6 +224,17 @@ under target/. Older helper and patch scripts are no longer used.
     readme = source / 'README.md'
     if readme.is_file():
         text = readme.read_text()
+        text = re.sub(r'(?ms)^## Build the Linux release packages\n.*?(?=^## |\Z)',
+            '## Build the Linux release packages\n\n'
+            'Use the installed `darah-develop` command for both AppImage and Flatpak:\n\n'
+            '```sh\ndarah-develop --build\n```\n\n'
+            'Both verified packages are written to `target/dist/VERSION/`. '
+            'Flatpak setup installs missing runtime and SDK dependencies automatically. '
+            'Publish both packages with `darah-develop --publish`.\n\n'
+            'Flatpak bundles are GitHub release downloads. Install or upgrade a downloaded bundle with '
+            '`flatpak install --user ./darah-eda-VERSION-linux-ARCH.flatpak`. '
+            'Installations from an app remote use that remote for updates; these bundles do not '
+            'create a Darah app remote or submit to Flathub.\n\n', text)
         for before, after in [('python3 scripts/release.py publish --appimage-only', 'python3 scripts/publish.py'),
             ('python3 scripts/release.py publish', 'darah-develop --publish'),
             ('python3 scripts/release.py build --appimage-only', 'darah-develop --build'),
@@ -418,6 +445,8 @@ def build_signed_site(args):
                 flatpak = args.artifacts / f"darah-eda-{version}-linux-{cpu}.flatpak"
                 if not args.appimage_only and (not flatpak.is_file() or flatpak.stat().st_size == 0):
                     raise ValueError(f"Missing Flatpak bundle: {flatpak.name}")
+                if not args.appimage_only:
+                    artifacts.append(flatpak)
                 appimage = args.artifacts / f"darah-eda-{version}-linux-{cpu}.AppImage"
                 with appimage.open("rb") as file:
                     header = file.read(20)
@@ -433,7 +462,7 @@ def build_signed_site(args):
                 shutil.copyfile(file, destination)
                 targets[file.name] = target
         write_tuf(site, args.keys, root, targets, versions)
-        pages(site, args.github, version, migrate=args.command == "publish" and not args.appimage_only)
+        pages(site, args.github, version, migrate=False)
         sizes = [path.stat().st_size for path in site.rglob("*") if path.is_file()]
         if max(sizes) > 100 * 1024**2 or sum(sizes) > 900 * 1024**2:
             raise ValueError("The update site exceeds the GitHub Pages branch size budget")
@@ -444,7 +473,7 @@ def build_signed_site(args):
 def main():
     argv = sys.argv[1:]
     if argv[:1] == ['publish']: argv = argv[1:]
-    parser = argparse.ArgumentParser(description='Publish Darah. Handles setup, versioning, build reuse, GitHub, and the signed feed.')
+    parser = argparse.ArgumentParser(description='Publish Darah AppImage and Flatpak. Handles setup, versioning, build reuse, GitHub, and the signed feed.')
     parser.add_argument('source', nargs='?', default='.', type=Path)
     parser.add_argument('--version', help='explicit new version; otherwise choose the next patch release when needed')
     parser.add_argument('--keys', type=Path, help='existing signing keys, if automatic discovery cannot locate them')
@@ -512,18 +541,18 @@ def main():
             if tagged and tagged != commit: raise RuntimeError(f'{tag} already belongs to a different commit. Use --version with a new release version.')
             pending = {'version': version, 'commit': commit, 'complete': False}
             release.write_json(pending_path, pending)
-            artifact = release.build_project(source)
+            artifacts = release.build_release(source)
             if execute('git', 'diff', 'HEAD', '--name-only', capture=True).strip() or execute('git', 'rev-parse', 'HEAD', capture=True).strip() != commit:
                 raise RuntimeError('Source changed during the build; publication stopped.')
             execute('git', 'push', SSH_GIT, 'HEAD:main')
             if version == feed_version:
-                github_release(tag, commit, artifact, notes)
+                github_release(tag, commit, artifacts, notes)
                 pending['complete'] = True; release.write_json(pending_path, pending)
                 print(f'Published: https://github.com/{REPO}/releases/tag/{tag}')
                 return
             build_signed_site(SimpleNamespace(command='publish', keys=keys, base=PAGES, github=REPO,
-                version=version, notes=notes, artifacts=artifact.parent, previous=previous, output=site, appimage_only=True))
-            github_release(tag, commit, artifact, notes)
+                version=version, notes=notes, artifacts=artifacts[0].parent, previous=previous, output=site, appimage_only=False))
+            github_release(tag, commit, artifacts, notes)
             execute('git', '-C', str(previous), 'rm', '-qr', '--', '.')
             shutil.copytree(site, previous, dirs_exist_ok=True)
             execute('git', '-C', str(previous), 'add', '--all')

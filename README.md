@@ -63,41 +63,15 @@ If the file picker fails under a Wayland compositor, check that the session has 
 
 ## Build the Linux release packages
 
-To test and build AppImage and Flatpak together, install Flatpak and
-Flatpak Builder, add the Flathub user remote, and run:
+Use the installed `darah-develop` command for both AppImage and Flatpak:
 
 ```sh
-flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 darah-develop --build
 ```
 
-The release helper writes both artifacts to `target/dist/VERSION/`.
-The legacy Debian build scripts remain available for local use.
+Both verified packages are written to `target/dist/VERSION/`. Flatpak setup installs missing runtime and SDK dependencies automatically. Publish both packages with `darah-develop --publish`.
 
-To build an AppImage, download the linuxdeploy AppImage for your build architecture from the [official linuxdeploy releases](https://github.com/linuxdeploy/linuxdeploy/releases), make it executable, and run:
-
-```sh
-LINUXDEPLOY=/absolute/path/to/linuxdeploy-x86_64.AppImage bash scripts/build-appimage.sh
-```
-
-Use the aarch64 tool on an ARM64 build host. The output is placed in `target/appimage/`. Choose a build distribution compatible with your intended test machines. Test the graphical window and file chooser on each supported environment.
-Release downloads include the version in their name. Before creating a desktop
-shortcut, you can give your downloaded copy the stable name
-`Darah-EDA-x86_64.AppImage` (or `Darah-EDA-aarch64.AppImage`). Updates keep the
-current path by default and can optionally switch to the stable name.
-
-To build and test Flatpak on its own:
-
-```sh
-bash scripts/build-flatpak.sh
-flatpak install --user ./target/flatpak/darah-eda-0.7.2-linux-x86_64.flatpak
-flatpak run io.github.citrineio.DarahEDA
-```
-
-Use Darah’s Open and Save dialogs to access projects outside the sandbox.
-Flatpak installations from a configured remote use that remote for updates.
-A standalone local bundle is useful for testing and can be upgraded by
-installing a newer bundle.
+Flatpak bundles are GitHub release downloads. Install or upgrade a downloaded bundle with `flatpak install --user ./darah-eda-VERSION-linux-ARCH.flatpak`. Installations from an app remote use that remote for updates; these bundles do not create a Darah app remote or submit to Flathub.
 
 ## Start with the guided example
 

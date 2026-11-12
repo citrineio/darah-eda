@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and test Darah AppImages, including glibc, loader, and export dependencies."""
+"""Build and test Darah AppImage and Flatpak packages, including runtime and export checks."""
 import argparse
 import fcntl
 import sys
@@ -386,6 +386,27 @@ def prepare_release_notes(source, version):
     return notes
 
 
+def sync_flatpak_metadata(source, version):
+    from datetime import datetime, timezone
+    from xml.etree import ElementTree
+    path = source / 'packaging/flatpak/io.github.citrineio.DarahEDA.metainfo.xml'
+    if not path.is_file(): return
+    original = path.read_text()
+    tree = ElementTree.fromstring(original)
+    releases = tree.find('releases')
+    if releases is None: raise RuntimeError('The Flatpak AppStream metadata needs a releases section.')
+    entries = list(releases)
+    if entries and entries[0].get('version') == version: return
+    if any(item.get('version') == version for item in entries):
+        raise RuntimeError('The Flatpak version is not the newest AppStream release.')
+    date = datetime.now(timezone.utc).date().isoformat()
+    entry = f'    <release version="{version}" date="{date}">\n      <description><p>Darah EDA {version}.</p></description>\n    </release>\n'
+    updated, count = re.subn(r'(<releases>\s*\n)', lambda match: match[1] + entry, original, count=1)
+    if count != 1: raise RuntimeError('Cannot update the Flatpak AppStream releases section.')
+    ElementTree.fromstring(updated)
+    path.write_text(updated)
+
+
 def set_version(source, version):
     if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
         raise RuntimeError('Use a plain release version such as 0.7.4.')
@@ -399,6 +420,7 @@ def set_version(source, version):
     if count != 1: raise RuntimeError('Cannot locate Darah in Cargo.lock.')
     tomllib.loads(text); tomllib.loads(lock_text)
     prepare_release_notes(source, version)
+    sync_flatpak_metadata(source, version)
     manifest.write_text(text); lock.write_text(lock_text)
 
 
@@ -526,6 +548,109 @@ def build_project(source, version=None, force=False):
         return image
 
 
+FLATPAK_ID = 'io.github.citrineio.DarahEDA'
+FLATHUB = 'https://flathub.org/repo/flathub.flatpakrepo'
+
+
+def flatpak_dependencies(source):
+    import platform
+    missing = [name for name in ['flatpak', 'flatpak-builder'] if not shutil.which(name)]
+    if missing:
+        if not shutil.which('apt-get') or (os.geteuid() != 0 and not shutil.which('sudo')):
+            raise RuntimeError('Missing Flatpak build tools: ' + ', '.join(missing))
+        prefix = [] if os.geteuid() == 0 else ['sudo']
+        subprocess.run([*prefix, 'apt-get', 'install', '-y', 'flatpak', 'flatpak-builder'], check=True)
+    manifest_path = source / f'packaging/flatpak/{FLATPAK_ID}.json'
+    if not manifest_path.is_file():
+        raise RuntimeError('The selected source project is missing its Flatpak manifest: ' + str(manifest_path))
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get('id') != FLATPAK_ID:
+        raise RuntimeError('The Flatpak manifest has an unexpected application ID.')
+    branch = manifest['runtime-version']
+    arch = platform.machine()
+    if arch not in TOOL_SHA256: raise RuntimeError(f'Unsupported Flatpak architecture: {arch}')
+    subprocess.run(['flatpak', 'remote-add', '--user', '--if-not-exists', 'flathub', FLATHUB], check=True)
+    refs = [f'runtime/{name}/{arch}/{branch}' for name in
+        [manifest['runtime'], manifest['sdk'], *manifest.get('sdk-extensions', [])]]
+    missing = [ref for ref in refs if subprocess.run(['flatpak', 'info', '--user', ref],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode]
+    if missing:
+        print('Installing the Flatpak runtime and SDK dependencies (first setup may download several GB).', flush=True)
+        subprocess.run(['flatpak', 'install', '--user', '--assumeyes', 'flathub', *missing], check=True)
+    return manifest
+
+
+def build_flatpak(source, force=False):
+    import platform
+    source = source_directory(source)
+    version = tomllib.loads((source / 'Cargo.toml').read_text())['package']['version']
+    arch = platform.machine()
+    if arch not in TOOL_SHA256: raise RuntimeError(f'Unsupported Flatpak architecture: {arch}')
+    artifact = source / f'target/dist/{version}/darah-eda-{version}-linux-{arch}.flatpak'
+    record_path = artifact.parent / 'flatpak-build.json'
+    state = source / 'target/flatpak'; state.mkdir(parents=True, exist_ok=True)
+    with (state / 'build.lock').open('a') as lock:
+        try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError: raise RuntimeError('Another Darah Flatpak build is running.')
+        before = fingerprint(source)
+        if not force and artifact.is_file() and artifact.stat().st_size and record_path.is_file():
+            record = json.loads(record_path.read_text())
+            if record.get('fingerprint') == before and record.get('sha256') == sha256_file(artifact):
+                print(f'Reusing verified Flatpak: {artifact}', flush=True)
+                return artifact
+        flatpak_dependencies(source)
+        with tempfile.TemporaryDirectory(prefix='staging-', dir=state) as name:
+            work = Path(name); copied = work / 'source'; (copied / '.cargo').mkdir(parents=True)
+            for item in ['Cargo.toml', 'Cargo.lock', 'build.rs', 'LICENSE']:
+                shutil.copy2(source / item, copied / item)
+            for directory in ['src', 'packaging']:
+                shutil.copytree(source / directory, copied / directory)
+            sync_flatpak_metadata(copied, version)
+            manifest = work / f'{FLATPAK_ID}.json'
+            shutil.copy2(source / f'packaging/flatpak/{FLATPAK_ID}.json', manifest)
+            with (copied / '.cargo/config.toml').open('w') as config:
+                subprocess.run(['cargo', '+stable', 'vendor', '--locked', 'vendor'], cwd=copied,
+                    stdout=config, check=True)
+            build = work / 'build'; repository = work / 'repo'
+            subprocess.run(['flatpak-builder', '--user', '--disable-rofiles-fuse',
+                f'--state-dir={state / "builder-state"}', f'--repo={repository}',
+                '--default-branch=stable', str(build), str(manifest)], cwd=source, check=True)
+            # --runtime mounts the production platform rather than the SDK.
+            result = subprocess.run(['flatpak', 'build', '--runtime', str(build),
+                '/usr/bin/ldd', '/app/bin/darah-eda'], capture_output=True, text=True, check=True)
+            if 'not found' in result.stdout + result.stderr:
+                raise RuntimeError('The Flatpak app has unresolved native dependencies in its production runtime.')
+            svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><rect width="160" height="80" fill="#12685b"/><text x="8" y="44" fill="white" font-size="16">Darah Flatpak</text></svg>'
+            for fmt, signature in [('png', b'\x89PNG\r\n\x1a\n'), ('pdf', b'%PDF-')]:
+                result = subprocess.run(['flatpak', 'build', '--runtime', str(build),
+                    '/app/bin/rsvg-convert', f'--format={fmt}'], input=svg, capture_output=True, check=True)
+                if not result.stdout.startswith(signature):
+                    raise RuntimeError(f'The Flatpak runtime produced an invalid {fmt} export.')
+            bundle = work / artifact.name
+            subprocess.run(['flatpak', 'build-bundle', f'--arch={arch}', f'--runtime-repo={FLATHUB}',
+                str(repository), str(bundle), FLATPAK_ID, 'stable'], check=True)
+            if not bundle.is_file() or not bundle.stat().st_size:
+                raise RuntimeError('Flatpak did not produce a nonempty bundle.')
+            if fingerprint(source) != before:
+                raise RuntimeError('Source files changed during the Flatpak build; rerun the release command.')
+            atomic_copy_artifact(bundle, artifact)
+        write_json(record_path, {'version': version, 'architecture': arch,
+            'fingerprint': before, 'sha256': sha256_file(artifact),
+            'checks': 'native dependency resolution and PNG/PDF export in the production Flatpak runtime'})
+        print(f'PASS: Flatpak native dependencies and PNG/PDF export.\nREADY: {artifact}', flush=True)
+        return artifact
+
+
+def build_release(source, version=None, force=False):
+    source = source_directory(source)
+    if version: set_version(source, version)
+    # Set up missing Flatpak dependencies before spending time on either build.
+    flatpak_dependencies(source)
+    appimage = build_project(source, force=force)
+    flatpak = build_flatpak(source, force=force)
+    return [appimage, flatpak]
+
+
 def main():
     import sys
     argv = sys.argv[1:]
@@ -536,7 +661,8 @@ def main():
     parser.add_argument('--force', action='store_true', help='rebuild even when a verified matching build is cached')
     parser.add_argument('--appimage-only', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    build_project(args.source, args.version, args.force)
+    if args.appimage_only: build_project(args.source, args.version, args.force)
+    else: build_release(args.source, args.version, args.force)
 
 
 if __name__ == '__main__':
