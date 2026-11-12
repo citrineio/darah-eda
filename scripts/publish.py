@@ -272,8 +272,19 @@ def digest(data):
 def metafile(version, data):
     return MetaFile(version, len(data), {"sha256": digest(data)})
 
+def checked_published_root(path, root):
+    # JSON spacing and key order are not part of the signed TUF payload.
+    # Keep published versioned root bytes immutable after validating identity.
+    data = path.read_bytes()
+    published = Metadata.from_bytes(data)
+    if published.to_dict() != root.to_dict():
+        raise ValueError("The TUF root changed without a version change")
+    root.verify_delegate("root", published)
+    return data
+
 def prior_tuf(site, root):
     meta = site / "tuf/metadata"
+    checked_published_root(meta / f"{root.signed.version}.root.json", root)
     timestamp = Metadata.from_file(str(meta / "timestamp.json"))
     root.verify_delegate("timestamp", timestamp)
     snapshot_file = meta / f"{timestamp.signed.snapshot_meta.version}.snapshot.json"
@@ -295,9 +306,10 @@ def write_tuf(site, keys, root, targets, versions):
     meta = site / "tuf/metadata"
     root_bytes = (keys / "root.json").read_bytes()
     root_path = meta / f"{root.signed.version}.root.json"
-    if root_path.exists() and root_path.read_bytes() != root_bytes:
-        raise ValueError("The TUF root changed without a version change")
-    write(root_path, root_bytes)
+    if root_path.exists():
+        checked_published_root(root_path, root)
+    else:
+        write(root_path, root_bytes)
     targets_data = signed(keys, root, "targets", Targets(version=tv, expires=expires(90), targets=targets))
     snapshot_data = signed(keys, root, "snapshot", Snapshot(version=sv, expires=expires(90),
                           meta={"targets.json": metafile(tv, targets_data)}))
