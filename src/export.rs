@@ -266,13 +266,26 @@ fn requirement_svg(project: &Project, lines: &[(bool, String)], page: Option<(us
 }
 
 fn text_report_svg(title: &str, subtitle: &str, lines: &[(bool, String)], page: Option<(usize, usize)>) -> String {
+    let lines = lines.iter().map(|(heading, line)| (*heading, line.clone(), None)).collect::<Vec<_>>();
+    colored_text_report_svg(title, subtitle, &lines, page)
+}
+
+fn colored_text_report_svg(title: &str, subtitle: &str,
+    lines: &[(bool, String, Option<crate::review::Status>)], page: Option<(usize, usize)>) -> String
+{
     let height = if page.is_some() { 920.0 } else { 112.0 + lines.len() as f32 * 19.0 };
     let mut out = svg(0.0, 0.0, 760.0, height);
     text(&mut out, 32.0, 34.0, 23, "start", &short(title, 49));
     text(&mut out, 32.0, 61.0, 16, "start", subtitle);
     let _ = writeln!(out, r#"<path d="M32 75 H728" stroke="rgb(170,189,205)"/>"#);
-    for (index, (heading, line)) in lines.iter().enumerate() {
-        text(&mut out, if *heading { 32.0 } else { 44.0 }, 101.0 + index as f32 * 19.0,
+    for (index, (heading, line, status)) in lines.iter().enumerate() {
+        let baseline = 101.0 + index as f32 * 19.0;
+        if let Some(colors) = status.map(verdict_colors) {
+            let _ = writeln!(out, r#"<rect x="32" y="{}" width="696" height="19" fill="{}"/>
+<rect x="32" y="{}" width="3" height="19" fill="{}"/>"#,
+                baseline - 14.0, colors.background, baseline - 14.0, colors.accent);
+        }
+        text(&mut out, if *heading && status.is_none() { 32.0 } else { 44.0 }, baseline,
             if *heading { 15 } else { 12 }, "start", line);
     }
     if let Some((index, total)) = page {
@@ -349,17 +362,7 @@ pub fn write_review(project: &Project, mode: Option<&crate::model::Mode>, findin
         ReviewFormat::Markdown => storage::export(path, &report),
         ReviewFormat::Html => storage::export(path, &review_html(&name, &report)),
         ReviewFormat::Pdf => {
-            let lines = report.lines().skip(1).flat_map(|line| {
-                let heading = line.starts_with('#');
-                let value = plain_review_line(line.trim_start_matches('#').trim());
-                let parts = wrap(&value, if heading { 68 } else { 88 });
-                if parts.is_empty() { vec![(false, String::new())] }
-                else { parts.into_iter().map(|line| (heading, line)).collect() }
-            }).collect::<Vec<_>>();
-            let count = lines.len().div_ceil(42);
-            let pages = lines.chunks(42).enumerate().map(|(index, lines)|
-                text_report_svg(&name, "Design review", lines, Some((index + 1, count)))).collect::<Vec<_>>();
-            convert(&pages, Format::Pdf, path)
+            convert(&review_pdf_pages(&name, &report), Format::Pdf, path)
         }
         ReviewFormat::Csv => unreachable!(),
     }
@@ -372,20 +375,173 @@ fn plain_review_line(value: &str) -> String {
         .replace("&#91;", "[").replace("&#93;", "]").replace("&amp;", "&")
 }
 
+// These annotations follow the report's generated headings and table columns.
+// Words in project names, evidence, or arbitrary prose never select a color.
+fn review_status(value: &str) -> Option<crate::review::Status> {
+    use crate::review::Status;
+    match value.split(" · ").next()?.trim() {
+        "Satisfied within scope" | "Design pass" => Some(Status::Pass),
+        "Failed" | "Design fail" => Some(Status::Fail),
+        "Unresolved" | "Open" => Some(Status::Open),
+        "Manual verification" | "Captured" => Some(Status::Manual),
+        "Warning" => Some(Status::Warning),
+        _ => None,
+    }
+}
+
+fn review_lines(markdown: &str) -> Vec<(&str, Option<crate::review::Status>)> {
+    let mut section = "";
+    let mut in_table = false;
+    let mut status_column = None;
+    markdown.lines().map(|line| {
+        let mut status = None;
+        if line.starts_with('|') && line.ends_with('|') {
+            let cells = line.trim_matches('|').split('|').map(str::trim).collect::<Vec<_>>();
+            if !in_table {
+                status_column = cells.iter().position(|cell| matches!(*cell, "Status" | "Design result"));
+                in_table = true;
+            } else {
+                status = status_column.and_then(|index| cells.get(index)).and_then(|cell| review_status(cell));
+            }
+        } else {
+            in_table = false;
+            status_column = None;
+            if let Some(title) = line.strip_prefix("## ") { section = title; }
+            if let Some(title) = line.strip_prefix("### ") {
+                status = match section {
+                    "Review" => review_status(title),
+                    "Design checks and evidence" => title.rsplit_once(" · ").and_then(|(_, status)| review_status(status)),
+                    _ => None,
+                };
+            }
+            if section == "Power budgets by operating mode" && line.starts_with("- ") {
+                status = line.strip_prefix("- ").and_then(review_status);
+            }
+        }
+        (line, status)
+    }).collect()
+}
+
+fn review_pdf_pages(title: &str, markdown: &str) -> Vec<String> {
+    let mut lines = vec![(false, "Status colors: green = satisfied; red = failed; yellow = unresolved / warning / manual.".into(), None)];
+    lines.extend(review_lines(markdown).into_iter().skip(1).flat_map(|(line, status)| {
+        let heading = line.starts_with('#');
+        let value = plain_review_line(line.trim_start_matches('#').trim());
+        let parts = wrap(&value, if heading { 68 } else { 88 });
+        if parts.is_empty() { vec![(false, String::new(), None)] }
+        else { parts.into_iter().map(|line| (heading, line, status)).collect() }
+    }));
+    let count = lines.len().div_ceil(42);
+    lines.chunks(42).enumerate().map(|(index, lines)|
+        colored_text_report_svg(title, "Design review", lines, Some((index + 1, count)))).collect()
+}
+
+#[cfg(test)]
+mod design_review_color_tests {
+    use super::*;
+    use crate::review::Status;
+
+    #[test]
+    fn all_design_verdicts_share_power_review_colors_in_html_and_pdf() {
+        let mut markdown = String::from("# Demo · Design review\n\n## Review\n");
+        for status in [Status::Pass, Status::Fail, Status::Open, Status::Manual, Status::Warning] {
+            writeln!(markdown, "### {} · Check <A&B>\n\nEvidence remains readable.\n", status.label()).unwrap();
+        }
+        let html = review_html("Demo <A&B>", &markdown);
+        let pages = review_pdf_pages("Demo <A&B>", &markdown);
+        assert_eq!(html.matches("<h3 class=\"verdict\"").count(), 5);
+        assert!(html.contains("Check &lt;A&amp;B&gt;"));
+        for status in [Status::Pass, Status::Fail, Status::Open, Status::Manual, Status::Warning] {
+            let colors = verdict_colors(status);
+            assert!(html.contains(colors.accent));
+            assert!(html.contains(status.label()));
+            assert!(pages.iter().any(|page| page.contains(colors.background) && page.contains(colors.accent)));
+            assert!(pages.iter().any(|page| page.contains(status.label())));
+        }
+    }
+
+    #[test]
+    fn scoped_checks_and_status_columns_are_colored_without_guessing_from_names() {
+        let markdown = "# Demo\n## Blocks\n- Failed · board name\n\n## Design checks and evidence\n### Board · Failed\nDetails\n\n## Rail comparison\n| Rail | Mode | Status | Budget |\n| --- | --- | --- | --- |\n| Failed | Warning | Satisfied within scope | Within capacity |\n\n## Requirements\n| Requirement | Design result |\n| --- | --- |\n| A | Design fail · Outside declared range |\n| B | Open · Input missing |\n| C | Manual verification · Review needed |\n\n## Interface characteristics\n### Failed · port name\n";
+        let lines = review_lines(markdown);
+        assert_eq!(lines.iter().filter(|(_, status)| status.is_some()).count(), 5);
+        assert_eq!(lines.iter().find(|(line, _)| line.starts_with("| Failed |")).unwrap().1, Some(Status::Pass));
+        assert!(lines.iter().filter(|(line, _)| line.contains("name")).all(|(_, status)| status.is_none()));
+        let html = review_html("Demo", markdown);
+        assert_eq!(html.matches("<tr class=\"verdict\"").count(), 4);
+        assert!(html.contains("<h3>Failed · port name</h3>"));
+        let budgets = review_lines("## Power budgets by operating mode\n- Satisfied within scope · Current budget · Failed · Within capacity\n");
+        assert_eq!(budgets[1].1, Some(Status::Pass));
+    }
+
+    #[test]
+    fn long_status_rows_keep_their_color_across_pdf_pages() {
+        let markdown = format!("# Demo\n## Rail comparison\n| Rail | Mode | Status | Budget |\n| --- | --- | --- | --- |\n| Rail | Run | Failed | {} |\n", "Long evidence statement. ".repeat(300));
+        let pages = review_pdf_pages("Demo", &markdown);
+        assert!(pages.len() > 1);
+        for page in &pages {
+            assert!(page.contains(verdict_colors(Status::Fail).accent));
+            assert!(page.ends_with("</svg>\n"));
+        }
+        let plain = requirement_svg(&Project::new(), &[(false, "Failed is a requirement title".into())], None);
+        assert!(!plain.contains(verdict_colors(Status::Fail).accent));
+    }
+
+    #[test]
+    fn generated_whole_design_and_subsystem_exports_preserve_status_and_plain_registers() -> Result<()> {
+        use crate::model::{BlockPosition, BlockSize, Role};
+        use crate::review::{Finding, Subject};
+        let mut project = Project::new();
+        let block = project.add_block(Role::Processing, "Controller <A&B>".into(), false)?;
+        let scope = project.add_subsystem("Controller subsystem".into(), None,
+            BlockPosition { x: 0, y: 0 }, BlockSize { width: 300, height: 200 }, &[block])?;
+        let findings = [Status::Pass, Status::Fail, Status::Open, Status::Manual, Status::Warning]
+            .into_iter().map(|status| Finding {
+                subject: Subject::Block(block), status, title: "Check <A&B>".into(),
+                detail: "Declared values and evidence".into(), evidence: vec!["Lab note".into()],
+                ports: vec![], blocks: vec![block],
+            }).collect::<Vec<_>>();
+        let directory = tempfile::tempdir().unwrap();
+        for scope in [None, Some(scope)] {
+            let html_path = directory.path().join(format!("review-{scope:?}.html"));
+            write_review(&project, None, &findings, scope, ReviewFormat::Html, &html_path)?;
+            let html = fs::read_to_string(html_path).unwrap();
+            assert_eq!(html.matches("<h3 class=\"verdict\"").count(), 5);
+            let report = crate::review::markdown_for_scope(&project, None, &findings, scope)?;
+            assert_eq!(review_lines(&report).iter().filter(|(_, status)| status.is_some()).count(), 5);
+            for format in [ReviewFormat::Markdown, ReviewFormat::Csv] {
+                let path = directory.path().join(format!("review-{scope:?}.{}", format.extension()));
+                write_review(&project, None, &findings, scope, format, &path)?;
+                let plain = fs::read_to_string(path).unwrap();
+                assert!(!plain.contains("--verdict"));
+                for finding in &findings { assert!(plain.contains(finding.status.label())); }
+            }
+        }
+        Ok(())
+    }
+}
+
 fn review_html(title: &str, markdown: &str) -> String {
     let mut out = String::from(r#"<!doctype html><html lang="en"><meta charset="utf-8">
 <style>body{font:15px system-ui;color:#172638;max-width:1100px;padding:2rem;margin:auto}h1,h2,h3{color:#1e605a}
 table{border-collapse:collapse;width:100%;margin:1em 0}td,th{border:1px solid #cbd9e4;padding:.5em;text-align:left;overflow-wrap:anywhere}
-th{background:#eff5f9}p{white-space:pre-wrap;overflow-wrap:anywhere;margin:.45em 0}</style>"#);
+th{background:#eff5f9}p{white-space:pre-wrap;overflow-wrap:anywhere;margin:.45em 0}
+.verdict{background:var(--verdict-bg);print-color-adjust:exact;-webkit-print-color-adjust:exact}
+h3.verdict{border-left:4px solid var(--verdict-accent);padding:.5em;color:#172638}
+tr.verdict td:first-child,p.verdict{border-left:4px solid var(--verdict-accent)}p.verdict{padding:.5em}
+@media print{body{padding:0}h2,h3{break-after:avoid}tr{break-inside:avoid}}</style>"#);
     let _ = writeln!(out, "<title>{}</title><body>", xml(title));
+    out.push_str("<p>Status colors: green = satisfied; red = failed; yellow = unresolved / warning / manual.</p>\n");
     let mut table = false;
-    for line in markdown.lines() {
+    for (line, status) in review_lines(markdown) {
+        let decoration = status.map(verdict_colors).map_or_else(String::new, |colors|
+            format!(r#" class="verdict" style="--verdict-bg:{};--verdict-accent:{}""#, colors.background, colors.accent));
         if line.starts_with('|') && line.ends_with('|') {
             let cells: Vec<_> = line.trim_matches('|').split('|').map(str::trim).collect();
             if cells.iter().all(|cell| cell.chars().all(|ch| matches!(ch, '-' | ':' | ' '))) { continue; }
             let tag = if table { "td" } else { "th" };
             if !table { out.push_str("<table>"); table = true; }
-            out.push_str("<tr>");
+            let _ = write!(out, "<tr{decoration}>");
             for cell in cells { let _ = write!(out, "<{tag}>{}</{tag}>", xml(&plain_review_line(cell))); }
             out.push_str("</tr>\n");
         } else {
@@ -393,9 +549,9 @@ th{background:#eff5f9}p{white-space:pre-wrap;overflow-wrap:anywhere;margin:.45em
             if line.is_empty() { continue; }
             let level = line.bytes().take_while(|&byte| byte == b'#').count();
             if (1..=6).contains(&level) && line.as_bytes().get(level) == Some(&b' ') {
-                let _ = writeln!(out, "<h{level}>{}</h{level}>", xml(&plain_review_line(&line[level + 1..])));
+                let _ = writeln!(out, "<h{level}{decoration}>{}</h{level}>", xml(&plain_review_line(&line[level + 1..])));
             } else {
-                let _ = writeln!(out, "<p>{}</p>", xml(&plain_review_line(line)));
+                let _ = writeln!(out, "<p{decoration}>{}</p>", xml(&plain_review_line(line)));
             }
         }
     }

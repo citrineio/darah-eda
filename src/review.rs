@@ -595,7 +595,7 @@ pub fn markdown_for_scope(p: &Project, mode: Option<&Mode>, findings: &[Finding]
         let _ = writeln!(out, "### {}\n", literal(mode.map_or(p.condition.as_str(), |mode| mode.name.as_str())));
         for rail in p.ports.iter().filter(|port| port.kind == PortKind::Rail && p.block_in_scope(port.block, scope)) {
             let finding = rail_budget(p, rail, mode, &network);
-            let _ = writeln!(out, "- {} · {} · {}", literal(&finding.title), finding.status.label(), literal(&finding.detail));
+            let _ = writeln!(out, "- {} · {} · {}", finding.status.label(), literal(&finding.title), literal(&finding.detail));
         }
     }
     out.push_str("\n## Design checks and evidence\n\n");
