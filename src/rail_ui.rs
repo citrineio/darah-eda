@@ -1,3 +1,4 @@
+use crate::text_ui::{CopyableText as _, TextEditCopyMenu as _};
 use crate::{
     electrical::{AcReference, Capacity, CapacityUnit, Cell, Polarity, PowerKind},
     model::{Port, Result},
@@ -68,11 +69,11 @@ impl Draft {
             if let Some(expected) = expected {
                 port.power.kind = expected.kind;
                 port.power.polarity = expected.polarity;
-                ui.label(if expected.kind == PowerKind::Ac { "Power type · AC RMS" } else { "Power type · DC" });
-                if converted_output { ui.weak("The converter channel produces DC."); }
-                else { ui.weak("Set by the source. Choose Custom source to change power type."); }
+                ui.copyable_label(if expected.kind == PowerKind::Ac { "Power type · AC RMS" } else { "Power type · DC" });
+                if converted_output { ui.copyable_weak("The converter channel produces DC."); }
+                else { ui.copyable_weak("Set by the source. Choose Custom source to change power type."); }
             } else {
-                ui.label("Power type");
+                ui.copyable_label("Power type");
                 ui.horizontal_wrapped(|ui| {
                     ui.selectable_value(&mut port.power.kind, PowerKind::Dc, "DC");
                     ui.selectable_value(&mut port.power.kind, PowerKind::Ac, "AC · RMS");
@@ -81,7 +82,7 @@ impl Draft {
             if port.power.kind == PowerKind::Ac {
                 port.power.polarity = Polarity::Positive;
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("Phases");
+                    ui.copyable_label("Phases");
                     ui.selectable_value(&mut port.power.phases, 1, "1");
                     ui.selectable_value(&mut port.power.phases, 3, "3");
                 });
@@ -96,15 +97,15 @@ impl Draft {
                 port.power.phases = 1;
                 port.power.reference = AcReference::LineToNeutral;
                 if fixed_source {
-                    ui.label(if port.power.polarity == Polarity::Negative { "Polarity · Negative" } else { "Polarity · Positive" });
+                    ui.copyable_label(if port.power.polarity == Polarity::Negative { "Polarity · Negative" } else { "Polarity · Positive" });
                 } else {
                     ui.horizontal_wrapped(|ui| {
-                        ui.label("Polarity");
+                        ui.copyable_label("Polarity");
                         ui.selectable_value(&mut port.power.polarity, Polarity::Positive, "Positive");
                         ui.selectable_value(&mut port.power.polarity, Polarity::Negative, "Negative");
                     });
                 }
-                ui.weak("Voltage fields use positive magnitudes. AC uses RMS values.");
+                ui.copyable_weak("Voltage fields use positive magnitudes. AC uses RMS values.");
             }
         }
         if port.source.is_none() {
@@ -126,7 +127,7 @@ impl Draft {
         egui::ComboBox::from_id_salt("voltage_bounds_preset").selected_text(title).show_ui(ui, |ui| {
             for mv in rail::COMMON_MV {
                 let active = selected.is_some_and(|preset| preset.nominal_mv == mv);
-                if ui.selectable_label(active, label(mv)).clicked() {
+                if ui.copyable_selectable_label(active, label(mv)).clicked() {
                     selected = Some(VoltagePreset { nominal_mv: mv, tolerance_bp });
                     apply = true;
                     ui.close_menu();
@@ -135,7 +136,7 @@ impl Draft {
         });
         if let Some(mut preset) = selected {
             ui.horizontal_wrapped(|ui| {
-                ui.label("Tolerance ±");
+                ui.copyable_label("Tolerance ±");
                 let mut percent = f64::from(preset.tolerance_bp) / 100.0;
                 if ui.add(egui::DragValue::new(&mut percent).range(0.0..=100.0)
                     .speed(0.1).fixed_decimals(2).suffix("%")).changed()
@@ -162,30 +163,30 @@ impl Draft {
     pub fn show_nominal(&mut self, ui: &mut egui::Ui, bounds: &[String], unit: Scale, detailed: bool) {
         let midpoint = parse_bounds(bounds, unit).and_then(|(min, max)| rail::voltage_midpoint(min, max));
         if detailed {
-            ui.label("Nominal voltage override (V)");
+            ui.copyable_label("Nominal voltage override (V)");
             ui.add(egui::TextEdit::singleline(&mut self.nominal).desired_width(f32::INFINITY)
-                .hint_text("Automatic midpoint"));
+                .hint_text("Automatic midpoint").with_copy_menu());
         }
         if self.nominal.trim().is_empty() {
             if let Some(value) = midpoint {
-                ui.weak(format!("Nominal · {} (midpoint)", rail::label_voltage(value)));
-            } else { ui.weak("Nominal is calculated when both voltage bounds are valid."); }
+                ui.copyable_weak(format!("Nominal · {} (midpoint)", rail::label_voltage(value)));
+            } else { ui.copyable_weak("Nominal is calculated when both voltage bounds are valid."); }
         } else if let Ok(Some(value)) = Scale::Base.parse(&self.nominal) {
-            ui.weak(format!("Nominal · {} (override)", rail::label_voltage(value)));
+            ui.copyable_weak(format!("Nominal · {} (override)", rail::label_voltage(value)));
         }
     }
 
     pub fn source(&mut self, ui: &mut egui::Ui, port: &mut Port, bounds: &mut [String], voltage_unit: Scale) -> Result<()> {
-        ui.label("Power source catalog");
+        ui.copyable_label("Power source catalog");
         let previous = port.source.map(|source| source.preset.catalog_entry());
         let previous_category = self.source_category;
-        ui.label("Source category");
+        ui.copyable_label("Source category");
         let mut categories = vec![(None, "Custom source".into())];
         categories.extend(Preset::CATEGORIES.into_iter().map(|category| (Some(category), category.into())));
         picker(ui, "source_category", &mut self.source_category, &categories);
         let mut selected = previous;
         if self.source_category != previous_category { selected = None; }
-        ui.label(if self.source_category == Some("Batteries") { "Battery chemistry" } else { "Source preset" });
+        ui.copyable_label(if self.source_category == Some("Batteries") { "Battery chemistry" } else { "Source preset" });
         let mut presets = vec![(None, "Custom values".into())];
         if let Some(category) = self.source_category {
             presets.extend(Preset::ALL.iter().copied()
@@ -209,14 +210,14 @@ impl Draft {
             let previous_cell = battery.cell;
             let previous_parallel = battery.parallel;
             let previous_series = source.series;
-            ui.label("Cell format / reference");
+            ui.copyable_label("Cell format / reference");
             let cells: Vec<_> = Cell::ALL.into_iter().filter(|candidate| candidate.chemistry() == cell.chemistry())
                 .map(|candidate| (candidate, candidate.label().into())).collect();
             picker(ui, "battery_cell", &mut battery.cell, &cells);
             ui.horizontal_wrapped(|ui| {
-                ui.label("Series");
+                ui.copyable_label("Series");
                 ui.add(egui::DragValue::new(&mut source.series).range(1..=100));
-                ui.label("Parallel");
+                ui.copyable_label("Parallel");
                 ui.add(egui::DragValue::new(&mut battery.parallel).range(1..=100));
             });
             if previous_cell != battery.cell || previous_parallel != battery.parallel || previous_series != source.series {
@@ -225,7 +226,7 @@ impl Draft {
                 self.set_capacity(battery.capacity);
                 fill = true;
             }
-            ui.weak("Pack capacity. Changing the cell template or pack layout reloads its adjustable default.");
+            ui.copyable_weak("Pack capacity. Changing the cell template or pack layout reloads its adjustable default.");
             field(ui, "Pack capacity", &mut self.capacity);
             let mut unit = self.capacity_unit;
             ui.horizontal_wrapped(|ui| {
@@ -248,9 +249,9 @@ impl Draft {
             battery.capacity = Scale::Milli.parse(&self.capacity)?.map(|milli_value| Capacity { unit: self.capacity_unit, milli_value });
             port.battery = Some(battery);
             if let (Some(capacity), Some(nominal)) = (battery.capacity, nominal) {
-                ui.label(format!("Nominal stored energy · {} Wh", Scale::Base.number(capacity.energy_uwh(nominal)?.into())));
+                ui.copyable_label(format!("Nominal stored energy · {} Wh", Scale::Base.number(capacity.energy_uwh(nominal)?.into())));
             }
-            ui.weak("Capacity depends on cell size, load, cutoff, temperature, and age. Template defaults are reference examples or labeled assumptions.");
+            ui.copyable_weak("Capacity depends on cell size, load, cutoff, temperature, and age. Template defaults are reference examples or labeled assumptions.");
         }
         if source.preset.pd() {
             ui.checkbox(&mut source.contract_confirmed, "Assume negotiated contract is available");
@@ -269,7 +270,7 @@ impl Draft {
             ];
         }
         port.source = Some(source);
-        ui.weak("Editable planning envelope. Declare actual current, tolerance, transients, and source conditions.");
+        ui.copyable_weak("Editable planning envelope. Declare actual current, tolerance, transients, and source conditions.");
         Ok(())
     }
 
@@ -284,8 +285,8 @@ fn parse_bounds(bounds: &[String], unit: Scale) -> Option<(u64, u64)> {
 }
 
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
-    ui.label(label);
-    ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
+    ui.copyable_label(label);
+    ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY).with_copy_menu());
 }
 
 fn picker<T: Copy + PartialEq>(ui: &mut egui::Ui, id: &str, selected: &mut T, choices: &[(T, String)]) {
@@ -305,13 +306,13 @@ fn picker<T: Copy + PartialEq>(ui: &mut egui::Ui, id: &str, selected: &mut T, ch
                 ui.set_max_width(width);
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                 if count > 6 {
-                    ui.small(format!("{count} options · Scroll for more"));
+                    ui.copyable_small(format!("{count} options · Scroll for more"));
                     ui.separator();
                 }
                 for (value, label) in choices { ui.selectable_value(selected, *value, label.as_str()); }
             });
     });
-    if count > 6 { ui.small(format!("{count} options · Scroll inside the open list")); }
+    if count > 6 { ui.copyable_small(format!("{count} options · Scroll inside the open list")); }
 }
 
 #[cfg(test)]

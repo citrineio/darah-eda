@@ -36,6 +36,12 @@ Forms distinguish draft edits from applied project data. Use **Apply**, **Create
 
 **Ctrl+S** saves the applied project to disk. Check the save confirmation in the toolbar. Apply pending edits before exporting so the report includes them.
 
+## Copy text
+
+Drag to select display text and press **Ctrl+C**, or right-click a label and choose **Copy text**. In editable fields, a selection offers **Copy selection** and **Copy all text**; without a selection, **Copy text** copies the full field.
+
+Use the existing diagram and project-outline context menus to copy block names, block text, port labels, subsystem paths, or connections. Right-click a Design checks row to copy the check or its evidence.
+
 ## Navigate and edit the canvas
 
 | Action | Control |

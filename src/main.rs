@@ -24,6 +24,7 @@ mod signal;
 mod signal_ui;
 mod status_ui;
 mod units;
+mod text_ui;
 #[cfg(target_os = "linux")]
 mod updater;
 mod wires;

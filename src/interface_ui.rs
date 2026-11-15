@@ -1,3 +1,4 @@
+use crate::text_ui::{CopyableText as _, TextEditCopyMenu as _};
 use crate::{interface_catalog, interface_review, interfaces::*, model::{Id, Port, PortKind, Project, Result, Role}, signal::{Kind, Parameter, Spec}};
 use eframe::egui;
 use std::collections::BTreeSet;
@@ -119,9 +120,9 @@ impl Editor {
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Save changes").clicked() { save = true; }
                     if ui.button("Discard and close").clicked() { self.discard = true; }
-                    ui.weak("Draft editor · Save changes applies to the project; then Ctrl+S saves the file.");
+                    ui.copyable_weak("Draft editor · Save changes applies to the project; then Ctrl+S saves the file.");
                 });
-                if let Some(error) = &self.error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
+                if let Some(error) = &self.error { ui.copyable_colored_label(egui::Color32::LIGHT_RED, error); }
                 ui.separator();
                 let scroll = if self.tab == Tab::Connectors { egui::ScrollArea::vertical() } else { egui::ScrollArea::both() };
                 let result = scroll.id_salt(("interface_editor", self.tab.label()))
@@ -159,26 +160,26 @@ impl Editor {
         if old != self.block { self.selected = None; self.selected_ports.clear(); }
     }
     fn contracts(&mut self, ui: &mut egui::Ui, project: &mut Project) -> Result<()> {
-        ui.heading("Shared signal contracts");
-        ui.label("Create from any block or either end of an interface. Ports keep their actual hardware specifications separately.");
+        ui.copyable_heading("Shared signal contracts");
+        ui.copyable_label("Create from any block or either end of an interface. Ports keep their actual hardware specifications separately.");
         let choices: Vec<_> = project.interfaces.contracts.iter().map(|c| (Some(c.id), c.name.clone())).collect();
         choose(ui, "Contract", "edit_contract", &mut self.selected, &choices);
-        ui.horizontal_wrapped(|ui| { ui.label("New contract name"); ui.text_edit_singleline(&mut self.name); });
+        ui.horizontal_wrapped(|ui| { ui.copyable_label("New contract name"); ui.copyable_text_edit_singleline(&mut self.name); });
         if ui.button("Create contract").clicked() {
             let mut port = Port::new(0, PortKind::SignalOut); port.signal = self.name.clone();
             self.selected = Some(project.put_contract(Contract::from_port(&port))?);
         }
         let Some(id) = self.selected else { return Ok(()) };
         let used: Vec<_> = project.ports.iter().filter(|p| p.contract == Some(id)).map(|p| project.port_label(p)).collect();
-        ui.label(format!("Linked to {} port(s). Editing this definition affects every listed port.", used.len()));
-        for label in used { ui.weak(label); }
+        ui.copyable_label(format!("Linked to {} port(s). Editing this definition affects every listed port.", used.len()));
+        for label in used { ui.copyable_weak(label); }
         let mut duplicate = None; let mut remove = false;
         if let Some(contract) = project.interfaces.contracts.iter_mut().find(|c| c.id == id) {
             field(ui, "Name", &mut contract.name); field(ui, "Description / measurement meaning", &mut contract.description);
             choose(ui, "Signal type", "contract_kind", &mut contract.limits.kind,
                 &Kind::ALL.into_iter().map(|k| (k, k.label().into())).collect::<Vec<_>>());
             field(ui, "Reference / domain", &mut contract.limits.reference);
-            ui.weak("Voltage/current/frequency/duty fields define the interface envelope. Bandwidth and data rate are minimum capability requirements. Resolution and acquisition details stay on the actual converter.");
+            ui.copyable_weak("Voltage/current/frequency/duty fields define the interface envelope. Bandwidth and data rate are minimum capability requirements. Resolution and acquisition details stay on the actual converter.");
             for &key in CONTRACT_PARAMETERS {
                 let mut value = contract.limits.values.get(&key).copied();
                 quantity(ui, key.label(false), &mut value, key.unit().1, key.unit().0, matches!(key,
@@ -201,8 +202,8 @@ impl Editor {
 
     fn ports(&mut self, ui: &mut egui::Ui, project: &mut Project) -> Result<()> {
         self.block_picker(ui, project);
-        let Some(block) = self.block else { ui.label("Add a block first."); return Ok(()) };
-        ui.heading(format!("{} ports", project.block_ports(block).count()));
+        let Some(block) = self.block else { ui.copyable_label("Add a block first."); return Ok(()) };
+        ui.copyable_heading(format!("{} ports", project.block_ports(block).count()));
         let mut templates = vec![(None, "Fresh port".into())];
         templates.extend(project.interfaces.templates.iter().map(|t| (Some(t.id), t.name.clone())));
         choose(ui, "Template", "port_template", &mut self.template, &templates);
@@ -212,9 +213,9 @@ impl Editor {
         contracts.extend(project.interfaces.contracts.iter().map(|c| (Some(c.id), c.name.clone())));
         choose(ui, "Contract for fresh signal ports", "bulk_contract", &mut self.contract, &contracts);
         ui.horizontal_wrapped(|ui| {
-            ui.label("Prefix"); ui.text_edit_singleline(&mut self.prefix);
-            ui.label("First number"); ui.add(egui::DragValue::new(&mut self.start).range(0..=65535));
-            ui.label("Count"); ui.add(egui::DragValue::new(&mut self.count).range(1..=1024));
+            ui.copyable_label("Prefix"); ui.copyable_text_edit_singleline(&mut self.prefix);
+            ui.copyable_label("First number"); ui.add(egui::DragValue::new(&mut self.start).range(0..=65535));
+            ui.copyable_label("Count"); ui.add(egui::DragValue::new(&mut self.count).range(1..=1024));
         });
         ui.checkbox(&mut self.number_pins,"Also number physical pins from the first number");
         if ui.button("Create numbered ports").clicked() {
@@ -242,10 +243,10 @@ impl Editor {
             for port in project.ports.iter_mut().filter(|p|self.selected_ports.contains(&p.id)&&!p.kind.power()) { port.contract=self.contract; }
         }
         ui.horizontal_wrapped(|ui| {
-            ui.label("Template name"); ui.text_edit_singleline(&mut self.name);
+            ui.copyable_label("Template name"); ui.copyable_text_edit_singleline(&mut self.name);
             save_template = ui.button("Save first selected as template").clicked();
         });
-        ui.weak("Template application preserves port IDs, names, pin numbers and layout. Hardware fields are copied. Save a configured port once, then reuse it for many pins.");
+        ui.copyable_weak("Template application preserves port IDs, names, pin numbers and layout. Hardware fields are copied. Save a configured port once, then reuse it for many pins.");
         if duplicate { for id in self.selected_ports.clone() { project.duplicate_port(id)?; } }
         if delete { for id in self.selected_ports.clone() { project.remove_port(id)?; } self.selected_ports.clear(); }
         if save_template { if let Some(&id) = self.selected_ports.first() { project.save_port_template(id, self.name.clone())?; } }
@@ -259,19 +260,19 @@ impl Editor {
         }
         let mut conflict = None;
         egui::Grid::new("port_table").striped(true).num_columns(6).show(ui, |ui| {
-            for title in ["Select", "Name / physical pin", "Type", "Contract", "Placement", "Create contract"] { ui.strong(title); } ui.end_row();
+            for title in ["Select", "Name / physical pin", "Type", "Contract", "Placement", "Create contract"] { ui.copyable_strong(title); } ui.end_row();
             for port in project.ports.iter_mut().filter(|p| p.block == block) {
                 ui.push_id(port.id, |ui| {
                     let mut checked = self.selected_ports.contains(&port.id);
                     if ui.checkbox(&mut checked, "").changed() { if checked { self.selected_ports.insert(port.id); } else { self.selected_ports.remove(&port.id); } }
-                    ui.vertical(|ui| { ui.add(egui::TextEdit::singleline(&mut port.name).desired_width(130.0)); ui.add(egui::TextEdit::singleline(&mut port.pin).hint_text("Physical pin").desired_width(100.0)); });
+                    ui.vertical(|ui| { ui.add(egui::TextEdit::singleline(&mut port.name).desired_width(130.0).with_copy_menu()); ui.add(egui::TextEdit::singleline(&mut port.pin).hint_text("Physical pin").desired_width(100.0).with_copy_menu()); });
                     let old = port.kind;
                     choose(ui, "", "port_kind", &mut port.kind, &PortKind::ALL.into_iter().map(|k| (k, k.label().into())).collect::<Vec<_>>());
                     if old.power() != port.kind.power() {
                         let mut replacement = Port::new(block, port.kind); replacement.id = port.id; replacement.name = port.name.clone(); replacement.pin = port.pin.clone(); replacement.layout = port.layout;
                         *port = replacement;
                     }
-                    if port.kind.power() { ui.weak("Power port"); } else { choose(ui, "", "port_contract", &mut port.contract, &contracts); }
+                    if port.kind.power() { ui.copyable_weak("Power port"); } else { choose(ui, "", "port_contract", &mut port.contract, &contracts); }
                     ui.vertical(|ui| {
                         let old_layout=port.layout;
                         let mut manual = port.layout.is_some();
@@ -300,7 +301,7 @@ impl Editor {
         self.block_picker(ui, project);
         choose(ui, "Implementation", "new_conversion", &mut self.channel_kind,
             &ConversionKind::ALL.into_iter().map(|k| (k,k.label().into())).collect::<Vec<_>>());
-        ui.horizontal_wrapped(|ui| { ui.label("Name"); ui.text_edit_singleline(&mut self.name); });
+        ui.horizontal_wrapped(|ui| { ui.copyable_label("Name"); ui.copyable_text_edit_singleline(&mut self.name); });
         if ui.button("Create conversion block").clicked() {
             self.block = Some(project.add_block(Role::Custom, self.name.clone(), false)?);
         }
@@ -354,7 +355,7 @@ impl Editor {
             let spec = output.signal_spec.get_or_insert_with(Spec::default);
             spec.kind = Kind::AnalogVoltage; spec.values.insert(Parameter::VoltageMin,min); spec.values.insert(Parameter::VoltageMax,max);
         }
-        ui.weak("The linear/divider calculation is a static envelope. Dynamic conversion and protocol behavior remain engineering review items.");
+        ui.copyable_weak("The linear/divider calculation is a static envelope. Dynamic conversion and protocol behavior remain engineering review items.");
         let delete = ui.button("Remove channel definition (keep ports)").clicked();
         project.interfaces.channels[index] = channel;
         if delete { project.interfaces.channels.remove(index); self.selected = None; }
@@ -371,14 +372,14 @@ impl Editor {
         }
         let index = project.interfaces.connectors.iter().position(|c| Some(c.id) == self.selected);
         if index.is_none() {
-            ui.heading("Add connector");
+            ui.copyable_heading("Add connector");
             field(ui, "Name", &mut self.name);
             let exposures = Exposure::ALL.map(|e| (e, e.label().into()));
             choose(ui, "Exposure", "new_exposure", &mut self.connector_exposure, &exposures);
             let presets = interface_catalog::PRESETS;
-            ui.label(format!("Preset · {}", presets[self.preset].label()));
+            ui.copyable_label(format!("Preset · {}", presets[self.preset].label()));
             ui.collapsing("Browse connector presets", |ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.connector_search).hint_text("Search family or category"));
+                ui.add(egui::TextEdit::singleline(&mut self.connector_search).hint_text("Search family or category").with_copy_menu());
                 let query = self.connector_search.trim().to_lowercase();
                 let choices: Vec<_> = presets.iter().enumerate().filter_map(|(index, preset)| {
                     let label = format!("{} · {}", preset.category, preset.label());
@@ -388,12 +389,12 @@ impl Editor {
             });
             if presets[self.preset].count == 0 {
                 ui.horizontal(|ui| {
-                    ui.label("Physical contacts");
+                    ui.copyable_label("Physical contacts");
                     ui.add(egui::DragValue::new(&mut self.connector_count).range(1..=1024));
                 });
             }
             ui.checkbox(&mut self.incoming, "Preset direction: into board");
-            ui.weak("Direction sets the diagram orientation. Shared control buses are planning interfaces.");
+            ui.copyable_weak("Direction sets the diagram orientation. Shared control buses are planning interfaces.");
             let named = !self.name.trim().is_empty();
             let mut created = None;
             if ui.add_enabled(named, egui::Button::new("Create connector")).clicked() {
@@ -442,11 +443,11 @@ impl Editor {
         }
 
         ui.separator();
-        ui.heading("Signal families");
-        ui.weak("These ports appear on the block. Choose their edge and slot here, or use Edit ports on the diagram.");
+        ui.copyable_heading("Signal families");
+        ui.copyable_weak("These ports appear on the block. Choose their edge and slot here, or use Edit ports on the diagram.");
         let family_choices = PortKind::ALL.map(|kind| (kind, connector_direction(kind)));
         ui.horizontal_wrapped(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.family_name).hint_text("Family name").desired_width(145.0));
+            ui.add(egui::TextEdit::singleline(&mut self.family_name).hint_text("Family name").desired_width(145.0).with_copy_menu());
             egui::ComboBox::from_id_salt("family_direction").selected_text(connector_direction(self.family_kind)).show_ui(ui, |ui| {
                 for (kind, label) in &family_choices { ui.selectable_value(&mut self.family_kind, *kind, *label); }
             });
@@ -463,8 +464,8 @@ impl Editor {
             let layout = ui.push_id(port.id, |ui| {
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut port.name).desired_width(145.0));
-                    ui.label(connector_direction(port.kind));
+                    ui.add(egui::TextEdit::singleline(&mut port.name).desired_width(145.0).with_copy_menu());
+                    ui.copyable_label(connector_direction(port.kind));
                 });
                 if !port.kind.power() {
                     choose(ui, "Signal contract", "family_contract", &mut port.contract, &contracts);
@@ -476,10 +477,10 @@ impl Editor {
         }
         if ports.iter().any(|port| !port.pin.trim().is_empty()) {
             let response = ui.collapsing("Existing individual ports", |ui| -> Result<()> {
-                ui.label("These ports retain their existing connections.");
+                ui.copyable_label("These ports retain their existing connections.");
                 for port in ports.iter().filter(|port| !port.pin.trim().is_empty()) {
                     let layout = ui.push_id(port.id, |ui| {
-                        ui.label(format!("{} · physical pin {}", port.name, port.pin));
+                        ui.copyable_label(format!("{} · physical pin {}", port.name, port.pin));
                         connector_placement(ui, port)
                     }).inner;
                     apply_connector_placement(project, port.id, layout)?;
@@ -497,7 +498,7 @@ impl Editor {
         let roles = PinRole::ALL.map(|role| (role, role.label().into()));
         ui.push_id(connector.id, |ui| {
             ui.collapsing(format!("Physical pinout · {} contacts", connector.pins.len()), |ui| {
-                ui.weak("Contact assignments document the physical connector. Mapping contacts to one family does not join their conductors.");
+                ui.copyable_weak("Contact assignments document the physical connector. Mapping contacts to one family does not join their conductors.");
                 for (row, pin) in connector.pins.iter_mut().enumerate() {
                     ui.push_id(row, |ui| {
                         egui::CollapsingHeader::new(format!("{} · {}", pin.number, pin.name))
@@ -546,9 +547,9 @@ impl Editor {
 
     fn protection(&mut self, ui: &mut egui::Ui, project: &mut Project) -> Result<()> {
         self.block_picker(ui, project);
-        ui.horizontal_wrapped(|ui| { ui.label("Name"); ui.text_edit_singleline(&mut self.name); });
+        ui.horizontal_wrapped(|ui| { ui.copyable_label("Name"); ui.copyable_text_edit_singleline(&mut self.name); });
         if ui.button("Create protection block").clicked() { self.block = Some(project.add_block(Role::Custom,self.name.clone(),false)?); }
-        ui.label("Shunt protection attaches to a selected net. Series protection uses real input/output ports on its block.");
+        ui.copyable_label("Shunt protection attaches to a selected net. Series protection uses real input/output ports on its block.");
         if ui.button("Add shunt protection definition").clicked() {
             let block = self.block.ok_or("Choose or create a protection block.")?;
             if project.ports.is_empty() { return Err("Create a signal or power port to attach protection to.".into()); }
@@ -584,7 +585,7 @@ impl Editor {
             choose(ui,"Series exit","protection_exit",&mut p.exit,&choices);
             if project.port(p.entry).is_some_and(|port| port.kind.power()) {
                 ui.checkbox(&mut p.manual_rail_voltage, "Set protected rail voltage manually");
-                if !p.manual_rail_voltage { ui.weak("The protected rail follows its supply input."); }
+                if !p.manual_rail_voltage { ui.copyable_weak("The protected rail follows its supply input."); }
             }
         }
         faults(ui,"Faults covered by this definition",&mut p.covers);
@@ -595,7 +596,7 @@ impl Editor {
         unsigned(ui,"Response / trip time",&mut p.response_ns,0,"ns"); unsigned(ui,"Added capacitance",&mut p.capacitance_pf,0,"pF");
         unsigned(ui,"Leakage",&mut p.leakage_na,0,"nA"); unsigned(ui,"Series resistance",&mut p.series_milliohm,3,"Ω");
         field(ui,"Datasheet, test or review evidence",&mut p.evidence); field(ui,"Fault response / conditions / notes",&mut p.notes);
-        ui.weak("Declared protection stays a manual review, not an immunity guarantee. A TVS elsewhere across a conversion stage does not cover this connector net.");
+        ui.copyable_weak("Declared protection stays a manual review, not an immunity guarantee. A TVS elsewhere across a conversion stage does not cover this connector net.");
         let delete = ui.button("Remove protection definition").clicked();
         project.interfaces.protections[index] = p;
         if delete { project.interfaces.protections.remove(index); self.selected = None; }
@@ -608,36 +609,36 @@ fn protection_recommendations(ui: &mut egui::Ui, project: &Project, stage: &mut 
     let volts = |uv: u64| crate::rail::label_voltage(uv);
     let amps = |ua: u64| crate::units::Scale::for_value(ua.into()).display(ua.into(), "A");
     egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.strong("Recommended planning values");
+        ui.copyable_strong("Recommended planning values");
         if let Some(value) = advice.standoff_floor_uv {
-            ui.label(format!("Working standoff floor · {} from the declared operating envelope", volts(value)));
+            ui.copyable_label(format!("Working standoff floor · {} from the declared operating envelope", volts(value)));
         } else if advice.ac {
-            ui.weak("For AC protection, specify the device working rating and its RMS or peak basis.");
+            ui.copyable_weak("For AC protection, specify the device working rating and its RMS or peak basis.");
         } else if advice.power {
-            ui.weak("Working standoff floor · declare the maximum operating voltage on the upstream supply rail.");
+            ui.copyable_weak("Working standoff floor · declare the maximum operating voltage on the upstream supply rail.");
         } else {
-            ui.weak("Working standoff floor · declare the signal voltage range on the driving port.");
+            ui.copyable_weak("Working standoff floor · declare the signal voltage range on the driving port.");
         }
         if let Some(value) = advice.connector_voltage_uv {
-            ui.label(format!("Connector working rating · {}", volts(value)));
+            ui.copyable_label(format!("Connector working rating · {}", volts(value)));
         }
         if advice.power && !stage.shunt && stage.covers.contains(&Fault::OverCurrent) {
-            if let Some(value) = advice.source_current_ua { ui.label(format!("Supply current rating · {}", amps(value))); }
-            if let Some(value) = advice.contact_current_ua { ui.label(format!("Connector rating per contact · {}", amps(value))); }
+            if let Some(value) = advice.source_current_ua { ui.copyable_label(format!("Supply current rating · {}", amps(value))); }
+            if let Some(value) = advice.contact_current_ua { ui.copyable_label(format!("Connector rating per contact · {}", amps(value))); }
             if let Some(value) = advice.trip_candidate_ua {
-                ui.label(format!("Current-limit candidate · {} from the lower of the supply and per-contact ratings", amps(value)));
+                ui.copyable_label(format!("Current-limit candidate · {} from the lower of the supply and per-contact ratings", amps(value)));
             } else if advice.load_at_or_above_ceiling {
-                ui.weak("Current limit · modeled load meets or exceeds the source or connector ceiling.");
+                ui.copyable_weak("Current limit · modeled load meets or exceeds the source or connector ceiling.");
             } else if !advice.ac {
-                ui.weak("Current-limit candidate · declare both the upstream supply current and the connector's per-contact rating.");
+                ui.copyable_weak("Current-limit candidate · declare both the upstream supply current and the connector's per-contact rating.");
             }
         }
         if let Some(value) = advice.clamp_ceiling_uv {
-            ui.label(format!("Clamp ceiling from the receiving pin's absolute maximum · {}", volts(value)));
+            ui.copyable_label(format!("Clamp ceiling from the receiving pin's absolute maximum · {}", volts(value)));
         } else if let Some(value) = advice.accepted_input_max_uv {
-            ui.weak(format!("Highest accepted downstream operating voltage · {}. Record a transient limit separately.", volts(value)));
+            ui.copyable_weak(format!("Highest accepted downstream operating voltage · {}. Record a transient limit separately.", volts(value)));
         }
-        ui.weak("Use part data and test conditions for actual clamp voltage/current, response time, capacitance, leakage, and resistance.");
+        ui.copyable_weak("Use part data and test conditions for actual clamp voltage/current, response time, capacitance, leakage, and resistance.");
         let can_fill = stage.standoff_uv.is_none() && advice.standoff_floor_uv.is_some()
             || stage.current_limit_ua.is_none() && advice.trip_candidate_ua.is_some();
         if ui.add_enabled(can_fill, egui::Button::new("Fill missing recommended values")).clicked() {
@@ -659,14 +660,14 @@ fn connector_placement(ui: &mut egui::Ui, port: &Port) -> Option<PortPosition> {
     let mut edge = port.layout.map(|position| position.edge);
     let mut slot = port.layout.map_or(0, |position| position.slot);
     ui.horizontal_wrapped(|ui| {
-        ui.label("Canvas placement");
+        ui.copyable_label("Canvas placement");
         let label = edge.map_or("Automatic", Edge::label);
         egui::ComboBox::from_id_salt("family_edge").selected_text(label).show_ui(ui, |ui| {
             ui.selectable_value(&mut edge, None, "Automatic");
             for choice in Edge::ALL { ui.selectable_value(&mut edge, Some(choice), choice.label()); }
         });
         if edge.is_some() {
-            ui.label("Slot");
+            ui.copyable_label("Slot");
             ui.add(egui::DragValue::new(&mut slot).range(0..=4095));
         }
     });
@@ -682,12 +683,12 @@ fn apply_connector_placement(project: &mut Project, id: Id, layout: Option<PortP
     Ok(())
 }
 
-fn field(ui: &mut egui::Ui, label: &str, value: &mut String) { ui.label(label); ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY)); }
+fn field(ui: &mut egui::Ui, label: &str, value: &mut String) { ui.copyable_label(label); ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY).with_copy_menu()); }
 fn choose<T: Clone + PartialEq>(ui: &mut egui::Ui, label: &str, id: &str, value: &mut T, choices: &[(T,String)]) {
-    if !label.is_empty() { ui.label(label); }
+    if !label.is_empty() { ui.copyable_label(label); }
     let text = choices.iter().find(|(candidate,_)| candidate == &*value).map_or("Choose…",|(_,label)|label.as_str());
     egui::ComboBox::from_id_salt(id).width(ui.available_width().clamp(140.0,360.0)).wrap_mode(egui::TextWrapMode::Wrap).selected_text(text).height(340.0).show_ui(ui,|ui| {
-        if choices.len()>8 { ui.small(format!("{} options · Scroll for more",choices.len())); }
+        if choices.len()>8 { ui.copyable_small(format!("{} options · Scroll for more",choices.len())); }
         for (candidate,label) in choices { ui.selectable_value(value,candidate.clone(),label.as_str()); }
     });
 }
@@ -697,7 +698,7 @@ fn port_choice(ui:&mut egui::Ui,project:&Project,label:&str,id:&str,value:&mut I
     choose(ui,label,id,value,&choices);
 }
 fn faults(ui:&mut egui::Ui,label:&str,values:&mut Vec<Fault>) {
-    ui.strong(label); ui.horizontal_wrapped(|ui| {
+    ui.copyable_strong(label); ui.horizontal_wrapped(|ui| {
         for fault in Fault::ALL { let mut checked=values.contains(&fault); if ui.checkbox(&mut checked,fault.label()).changed() { values.retain(|f|*f!=fault); if checked { values.push(fault); } } }
     });
 }
@@ -708,7 +709,7 @@ fn quantity(ui:&mut egui::Ui,label:&str,value:&mut Option<i64>,decimals:u32,unit
             let scale=10_f64.powi(decimals as i32); let mut display=*raw as f64/scale;
             let low=if signed { -9_000_000_000.0 } else { 0.0 };
             if ui.add(egui::DragValue::new(&mut display).speed(0.1).range(low..=9_000_000_000.0).suffix(format!(" {unit}"))).changed() { *raw=(display*scale).round() as i64; }
-        } else { ui.weak("Unknown"); }
+        } else { ui.copyable_weak("Unknown"); }
     });
 }
 fn unsigned(ui:&mut egui::Ui,label:&str,value:&mut Option<u64>,decimals:u32,unit:&str) {

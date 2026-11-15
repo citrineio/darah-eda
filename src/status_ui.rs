@@ -1,3 +1,4 @@
+use crate::text_ui::{CopyableText as _};
 use crate::review::Status;
 use eframe::egui::{self, Color32, RichText};
 
@@ -26,7 +27,7 @@ pub fn badge(ui: &mut egui::Ui, status: Status) {
     let color = color(status);
     egui::Frame::group(ui.style()).fill(tint(color)).stroke(egui::Stroke::new(1.0_f32, color))
         .inner_margin(egui::Margin::symmetric(7, 3)).show(ui, |ui| {
-            ui.label(RichText::new(status.label()).color(color).strong());
+            ui.copyable_label(RichText::new(status.label()).color(color).strong());
         });
 }
 
@@ -49,11 +50,11 @@ pub fn ordered_evidence(items: &[String]) -> Vec<&str> {
 pub fn compact_evidence(ui: &mut egui::Ui, text: &str) {
     if let Some((status, detail)) = result(text) {
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(format!("{} ·", status.label())).color(color(status)));
-            ui.label(detail);
+            ui.copyable_label(RichText::new(format!("{} ·", status.label())).color(color(status)));
+            ui.copyable_label(detail);
         });
     } else {
-        ui.label(text);
+        ui.copyable_label(text);
     }
 }
 
@@ -65,13 +66,13 @@ pub fn evidence(ui: &mut egui::Ui, text: &str) {
             .stroke(egui::Stroke::new(1.0_f32, color.gamma_multiply(0.55)))
             .inner_margin(egui::Margin::same(8)).show(ui, |ui| {
                 ui.set_min_width((width - 20.0).max(0.0));
-                ui.label(RichText::new(status.label()).color(color).strong());
-                ui.label(detail);
+                ui.copyable_label(RichText::new(status.label()).color(color).strong());
+                ui.copyable_label(detail);
             });
         let rect = frame.response.rect;
         ui.painter().rect_filled(egui::Rect::from_min_max(rect.min,
             egui::pos2(rect.left() + 3.0, rect.bottom())), 0.0, color);
     } else {
-        ui.label(text);
+        ui.copyable_label(text);
     }
 }

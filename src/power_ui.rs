@@ -1,3 +1,4 @@
+use crate::text_ui::{CopyableText as _};
 use crate::{
     model::{Id, Port, Project, Result},
     power::{Conversion, Isolation, IsolationClass, Kind},
@@ -40,12 +41,12 @@ impl Draft {
     pub fn show(&mut self, ui: &mut egui::Ui, project: &Project, rail: &mut Port, finding: Option<&Finding>)
     {
         ui.separator();
-        ui.strong("Power topology");
+        ui.copyable_strong("Power topology");
         let label = match self.kind {
             None => "No converter declared",
             Some(kind) => kind.label(),
         };
-        ui.label("Rail powered by");
+        ui.copyable_label("Rail powered by");
         egui::ComboBox::from_id_salt("conversion_kind").selected_text(label).show_ui(ui, |ui| {
             if !project.block(rail.block).is_some_and(|block| block.power_converter) {
                 ui.selectable_value(&mut self.kind, None, "No converter declared");
@@ -57,7 +58,7 @@ impl Draft {
         }
         if let Some(kind) = self.kind {
             let dedicated = project.block(rail.block).is_some_and(|block| block.power_converter);
-            ui.label("Feeder on this block");
+            ui.copyable_label("Feeder on this block");
             let input = self.input.and_then(|id| project.port(id)).map_or("Choose a feeder", |port| port.name.as_str());
             egui::ComboBox::from_id_salt("conversion_input").selected_text(input).show_ui(ui, |ui| {
                 for port in project.block_ports(rail.block).filter(|port| port.kind.power() && port.id != rail.id
@@ -66,7 +67,7 @@ impl Draft {
                 }
             });
             if !project.block_ports(rail.block).any(|port| port.kind.power() && port.id != rail.id) {
-                ui.weak("Add a supply input or another rail on this block first.");
+                ui.copyable_weak("Add a supply input or another rail on this block first.");
             }
             if kind.linear_dc() {
                 field(ui, "Ground current (µA)", &mut self.ground);
@@ -75,7 +76,7 @@ impl Draft {
                 field(ui, "Efficiency (%)", &mut self.efficiency);
                 if kind.ac_input() {
                     field(ui, "Input power factor (%)", &mut self.input_pf);
-                    ui.weak("Single-phase RMS input current. Three-phase conversion remains open.");
+                    ui.copyable_weak("Single-phase RMS input current. Three-phase conversion remains open.");
                 }
             }
             ui.collapsing("Isolation barrier", |ui| {
@@ -93,11 +94,11 @@ impl Draft {
                     field(ui, "Datasheet or test evidence (include AC/DC basis and conditions)", &mut self.isolation.evidence);
                 }
             });
-            ui.weak("Blank assumptions are unknown. Review uses declared steady-state loads.");
+            ui.copyable_weak("Blank assumptions are unknown. Review uses declared steady-state loads.");
         }
         if let Some(finding) = finding {
-            ui.label(format!("{} · {}", finding.status.label(), finding.detail));
-            if let Some(draw) = finding.evidence.last() { ui.weak(draw); }
+            ui.copyable_label(format!("{} · {}", finding.status.label(), finding.detail));
+            if let Some(draw) = finding.evidence.last() { ui.copyable_weak(draw); }
         }
     }
 
@@ -147,13 +148,13 @@ impl Draft {
 
 pub fn topology_options(ui: &mut egui::Ui, kind: &mut Option<Kind>) {
     for (label, options) in [("DC/DC", Kind::DC.as_slice()), ("AC/DC", Kind::AC.as_slice())] {
-        ui.strong(label);
+        ui.copyable_strong(label);
         for &option in options { ui.selectable_value(kind, Some(option), option.label()); }
         ui.separator();
     }
 }
 
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
-    ui.label(label);
-    ui.text_edit_singleline(value);
+    ui.copyable_label(label);
+    ui.copyable_text_edit_singleline(value);
 }

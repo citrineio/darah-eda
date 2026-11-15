@@ -1,3 +1,4 @@
+use crate::text_ui::{CopyableText as _};
 use eframe::egui;
 use futures_util::{pin_mut, StreamExt};
 use semver::Version;
@@ -292,6 +293,13 @@ enum Progress {
     Verifying,
 }
 
+fn download_progress(bytes: u64, total: u64) -> String {
+    // Keep one unit for the whole transfer, including the first few chunks.
+    let (divisor, unit) = if total >= 1_000_000_000 { (1_000_000_000.0, "GB") }
+        else { (1_000_000.0, "MB") };
+    format!("Downloading AppImage · {:.1} / {:.1} {unit}", bytes as f64 / divisor, total as f64 / divisor)
+}
+
 enum Event {
     Checked(Option<Release>),
     Progress(Progress),
@@ -417,41 +425,41 @@ impl Updater {
         let mut open = true;
         let mut restart = false;
         egui::Window::new("Updates").open(&mut open).default_width(450.0).show(ctx, |ui| {
-            ui.label(format!("Running version {}", env!("CARGO_PKG_VERSION")));
+            ui.copyable_label(format!("Running version {}", env!("CARGO_PKG_VERSION")));
             if let Some(path) = &self.installed {
                 let version = self.available.as_ref().map(|release| release.version.as_str()).unwrap_or("the update");
-                ui.label(format!("Installed v{version} at {}", path.display()));
-                if !self.message.is_empty() { ui.label(&self.message); }
+                ui.copyable_label(format!("Installed v{version} at {}", path.display()));
+                if !self.message.is_empty() { ui.copyable_label(&self.message); }
                 if ui.button(format!("Restart to use v{version}")).clicked() { restart = true; }
                 return;
             }
             if self.installing {
-                ui.horizontal(|ui| { ui.spinner(); ui.label("Installing the verified AppImage…"); });
+                ui.horizontal(|ui| { ui.spinner(); ui.copyable_label("Installing the verified AppImage…"); });
                 return;
             }
             let Some(base) = self.config.as_ref().map(|config| config.base.clone()) else {
-                ui.label("Updates are unconfigured in this build.");
+                ui.copyable_label("Updates are unconfigured in this build.");
                 return;
             };
             if ui.checkbox(&mut self.prefs.automatic, "Check automatically").changed() { self.save_preferences(); }
             if ui.add_enabled(self.work.is_none() && self.staged.is_none(), egui::Button::new("Check now")).clicked() {
                 self.start(ctx, None);
             }
-            if !self.message.is_empty() { ui.label(&self.message); }
+            if !self.message.is_empty() { ui.copyable_label(&self.message); }
             match self.progress {
                 Some(Progress::Downloading { bytes, total }) => {
-                    ui.label(format!("Downloading AppImage · {bytes} / {total} bytes"));
+                    ui.copyable_label(download_progress(bytes, total));
                     ui.add(egui::ProgressBar::new(bytes as f32 / total.max(1) as f32).show_percentage());
                 }
                 Some(Progress::Verifying) => {
-                    ui.horizontal(|ui| { ui.spinner(); ui.label("Verifying the AppImage…"); });
+                    ui.horizontal(|ui| { ui.spinner(); ui.copyable_label("Verifying the AppImage…"); });
                 }
                 None => {}
             }
             if let Some(available) = self.available.clone() {
                 ui.separator();
-                ui.heading(format!("Darah {} is available", available.version));
-                egui::ScrollArea::vertical().max_height(190.0).show(ui, |ui| { ui.label(&available.notes); });
+                ui.copyable_heading(format!("Darah {} is available", available.version));
+                egui::ScrollArea::vertical().max_height(190.0).show(ui, |ui| { ui.copyable_label(&available.notes); });
                 if let Some(staged) = &self.staged {
                     let name = stable_image_name();
                     if staged.destination.file_name().is_some_and(|current| current != name.as_str()) {
@@ -472,10 +480,10 @@ impl Updater {
                             }
                         }
                         Package::Deb => {
-                            ui.label("Use your system package manager to upgrade Darah.");
+                            ui.copyable_label("Use your system package manager to upgrade Darah.");
                             if let Ok(apt) = base.join("apt/") { ui.hyperlink_to("APT setup and upgrade instructions", apt.as_str()); }
                         }
-                        Package::Other => { ui.label("Use the installation method for this build."); }
+                        Package::Other => { ui.copyable_label("Use the installation method for this build."); }
                     }
                     ui.hyperlink_to("Download page", base.as_str());
                     ui.horizontal(|ui| {
@@ -533,6 +541,16 @@ impl Updater {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn download_progress_uses_readable_and_stable_units() {
+        assert_eq!(download_progress(26_677_248, 41_122_296), "Downloading AppImage · 26.7 / 41.1 MB");
+        assert_eq!(download_progress(0, 41_122_296), "Downloading AppImage · 0.0 / 41.1 MB");
+        assert_eq!(download_progress(41_122_296, 41_122_296), "Downloading AppImage · 41.1 / 41.1 MB");
+        assert_eq!(download_progress(750_000, 900_000), "Downloading AppImage · 0.8 / 0.9 MB");
+        assert_eq!(download_progress(250_000_000, 2_000_000_000), "Downloading AppImage · 0.2 / 2.0 GB");
+        assert_eq!(download_progress(0, 0), "Downloading AppImage · 0.0 / 0.0 MB");
+    }
 
     fn image(label: &[u8]) -> Vec<u8> {
         let mut header = [0; 20];

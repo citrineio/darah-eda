@@ -1,3 +1,4 @@
+use crate::text_ui::{CopyableText as _, TextEditCopyMenu as _};
 use crate::model::SCHEMA_VERSION;
 use eframe::egui;
 
@@ -72,6 +73,7 @@ impl Topic {
                 ("Understand the scope", "Darah checks a declared system model. It does not simulate circuits, signal integrity, protocols, or physical verification. Timing, RF parameters, and additional interface fields remain review inputs."),
             ],
             Self::Files => &[
+                ("Copy text", "Drag over display text and use Ctrl+C, or right-click it and choose Copy text. Form fields offer Copy selection and Copy all text when a selection exists. Diagram and project-outline context menus can copy names, labels, and connection text."),
                 ("Save a design", "File > Save or Ctrl+S saves committed edits. Use Save As for a separate copy. Project files use TOML and can also be supplied as the application's first command-line argument."),
                 ("Undo and redo", "Undo covers up to 64 in-session project edits, including block deletion and connection routing. Undo history is not saved inside the project file."),
                 ("Handle external changes", "If the project changed on disk after opening, Darah asks you to use Save As instead of overwriting it. Keep the original when comparing changes from another editor."),
@@ -91,6 +93,7 @@ impl Topic {
                 ("Escape", "Close Help or About. Text fields retain their usual editing shortcuts. On macOS, use Command for the Ctrl-based application shortcuts."),
             ],
             Self::Changes => &[
+                ("v0.7.7 · Readable downloads and copyable text", "Update downloads show megabytes instead of raw byte counts. Display text can be selected and copied from its context menu. Form fields offer Copy selection or Copy all text, and diagram menus can copy block, port, connection, and subsystem text."),
                 ("v0.7.6 · Maintenance release", "Maintenance release. See the release notes for details."),
                 ("v0.7.5 · Design Review export colors", "PDF and HTML Design Review exports use the same green, red, and yellow status colors as Power Review. Whole-design and subsystem reports retain written verdicts, evidence, and status colors across wrapped PDF rows and pages."),
                 ("v0.7.4 · Portable Linux AppImage", "AppImage builds include a private glibc runtime and its matching loader, windowing libraries, and the PNG/PDF renderer. The bundled runtime supports systems whose glibc is older than the build host."),
@@ -178,7 +181,7 @@ impl Help {
             egui::Window::new("Darah Help").open(&mut open).collapsible(false)
                 .default_size([760.0, 580.0]).min_width(460.0).min_height(350.0).show(ctx, |ui| {
                     ui.add(egui::TextEdit::singleline(&mut self.query).hint_text("Search help topics and instructions")
-                        .desired_width(f32::INFINITY));
+                        .desired_width(f32::INFINITY).with_copy_menu());
                     let topics: Vec<_> = Topic::ALL.into_iter().filter(|topic| topic.matches(&self.query)).collect();
                     if !topics.contains(&self.topic) {
                         if let Some(&topic) = topics.first() { self.topic = topic; }
@@ -188,20 +191,20 @@ impl Help {
                     });
                     ui.separator();
                     ui.horizontal(|ui| {
-                        ui.weak("F1 · Help     Escape · Close");
+                        ui.copyable_weak("F1 · Help     Escape · Close");
                         if ui.button("Close").clicked() { close = true; }
                     });
                     egui::ScrollArea::vertical().id_salt("help_content")
                         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                         .auto_shrink([false, false]).show(ui, |ui| {
                             if topics.is_empty() {
-                                ui.label("No matching help topic. Try a shorter search, or clear the search field.");
+                                ui.copyable_label("No matching help topic. Try a shorter search, or clear the search field.");
                             } else {
-                                ui.heading(self.topic.title());
+                                ui.copyable_heading(self.topic.title());
                                 for &(heading, body) in self.topic.sections() {
                                     ui.add_space(8.0);
-                                    ui.strong(heading);
-                                    ui.label(body);
+                                    ui.copyable_strong(heading);
+                                    ui.copyable_label(body);
                                 }
                             }
                         });
@@ -213,20 +216,20 @@ impl Help {
             let mut close = false;
             egui::Window::new("About Darah EDA").open(&mut about).collapsible(false)
                 .default_width(510.0).show(ctx, |ui| {
-                    ui.heading("Darah EDA");
-                    ui.label(env!("CARGO_PKG_DESCRIPTION"));
+                    ui.copyable_heading("Darah EDA");
+                    ui.copyable_label(env!("CARGO_PKG_DESCRIPTION"));
                     ui.separator();
                     egui::Grid::new("about_build_info").num_columns(2).spacing([20.0, 8.0]).show(ui, |ui| {
-                        for (label, value) in build_fields() { ui.strong(label); ui.label(value); ui.end_row(); }
+                        for (label, value) in build_fields() { ui.copyable_strong(label); ui.copyable_label(value); ui.end_row(); }
                     });
                     let authors = env!("CARGO_PKG_AUTHORS");
-                    if !authors.is_empty() { ui.label(format!("Authors · {authors}")); }
+                    if !authors.is_empty() { ui.copyable_label(format!("Authors · {authors}")); }
                     ui.separator();
-                    ui.label("Functional system design, interface capture, and requirement integration for electronics.");
+                    ui.copyable_label("Functional system design, interface capture, and requirement integration for electronics.");
                     ui.horizontal(|ui| {
                         if ui.button("Copy build info").clicked() { ctx.copy_text(build_info()); self.copied = true; }
                         if ui.button("Close").clicked() { close = true; }
-                        if self.copied { ui.label("Copied"); }
+                        if self.copied { ui.copyable_label("Copied"); }
                     });
                 });
             self.about = about && !close;

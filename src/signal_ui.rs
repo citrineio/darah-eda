@@ -1,3 +1,4 @@
+use crate::text_ui::{CopyableText as _, TextEditCopyMenu as _};
 use crate::{
     model::{Port, Result},
     signal::{self, Additional, Drive, Kind, Parameter, Spec},
@@ -37,7 +38,7 @@ impl Draft {
         }
         use Parameter::*;
         if spec.kind.logic() {
-            ui.weak("Source and sink currents are positive magnitudes.");
+            ui.copyable_weak("Source and sink currents are positive magnitudes.");
             self.group(ui, "Logic levels and current", output, &[HighMin, LowMax, SourceCurrent, SinkCurrent, Leakage]);
         }
         if matches!(spec.kind, Kind::AnalogVoltage | Kind::DifferentialAnalog) {
@@ -98,7 +99,7 @@ impl Draft {
             if let Some(index) = remove { spec.additional.remove(index); }
             if ui.small_button("Add parameter").clicked() { spec.additional.push(Additional::default()); }
         });
-        ui.weak("Unknown values stay blank. Characterization conditions must match the intended load and supply.");
+        ui.copyable_weak("Unknown values stay blank. Characterization conditions must match the intended load and supply.");
     }
 
     pub fn apply(&self, port: &mut Port) -> Result<()> {
@@ -117,7 +118,7 @@ impl Draft {
     }
 
     fn group(&mut self, ui: &mut egui::Ui, title: &str, output: bool, parameters: &[Parameter]) {
-        ui.strong(title);
+        ui.copyable_strong(title);
         for &key in parameters {
             let (unit, _) = key.unit();
             field(ui, &format!("{} ({unit})", key.label(output)), self.fields.entry(key).or_default());
@@ -126,8 +127,8 @@ impl Draft {
 }
 
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
-    ui.label(label);
-    ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
+    ui.copyable_label(label);
+    ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY).with_copy_menu());
 }
 
 

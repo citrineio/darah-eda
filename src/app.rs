@@ -1,3 +1,4 @@
+use crate::text_ui::{CopyableText as _, TextEditCopyMenu as _};
 use crate::{
     diagram::{Diagram, DiagramAction, Selection},
     export::{self, Content as ExportContent, Format as ExportFormat, PowerReportFormat, ReviewFormat},
@@ -195,6 +196,7 @@ impl Darah {
         style.spacing.button_padding = egui::vec2(8.0, 4.0);
         style.spacing.scroll = egui::style::ScrollStyle::solid();
         style.spacing.scroll.bar_width = 12.0;
+        style.interaction.selectable_labels = true;
         cc.egui_ctx.set_style(style);
         let project = Project::new();
         let mut app = Self {
@@ -866,6 +868,8 @@ impl Darah {
             let title = ui.selectable_label(self.selected == Selection::Project, &self.project.title);
             if title.clicked() { picked = Some(Selection::Project); }
             title.context_menu(|ui| {
+                crate::text_ui::copy_item(ui, "Copy project name", &self.project.title);
+                ui.separator();
                 if ui.button("Rename project…").clicked() {
                     self.rename_project = Some(self.project.title.clone());
                     ui.close_menu();
@@ -873,13 +877,15 @@ impl Darah {
             });
             if !self.project.subsystems.is_empty() {
                 ui.separator();
-                ui.strong("Subsystems");
+                ui.copyable_strong("Subsystems");
                 for scope in &self.project.subsystems {
                     ui.push_id(scope.id, |ui| {
                         let path = self.project.subsystem_path(scope.id);
-                        let row = ui.selectable_label(self.review_scope == Some(scope.id), path);
+                        let row = ui.selectable_label(self.review_scope == Some(scope.id), &path);
                         if row.clicked() { scope_action = Some((scope.id, "review")); }
                         row.context_menu(|ui| {
+                            crate::text_ui::copy_item(ui, "Copy subsystem path", &path);
+                            ui.separator();
                             for (label, action) in [("Open design review", "review"), ("Rename", "rename"),
                                 ("Redraw boundary", "redraw"), ("Fit boundary to members", "fit"),
                                 ("Remove boundary", "remove")]
@@ -892,7 +898,7 @@ impl Darah {
             }
             for role in Role::ALL {
                 ui.add_space(8.0);
-                ui.label(RichText::new(role.label()).weak());
+                ui.copyable_label(RichText::new(role.label()).weak());
                 for block in self.project.blocks.iter().filter(|b| b.role == role) {
                     ui.push_id(block.id, |ui| {
                         let row = ui.selectable_label(self.selected == Selection::Block(block.id), &block.name);
@@ -901,6 +907,8 @@ impl Darah {
                             picked = Some(Selection::Block(block.id));
                         }
                         row.context_menu(|ui| {
+                            crate::text_ui::copy_item(ui, "Copy block name", &block.name);
+                            ui.separator();
                             if ui.button("Duplicate block").clicked() {
                                 block_action = Some(DiagramAction::Duplicate(vec![block.id]));
                                 ui.close_menu();
@@ -913,7 +921,7 @@ impl Darah {
                         ui.indent("details", |ui| {
                             for port in self.project.block_ports(block.id) {
                                 let prefix = if port.kind.source() { "Out" } else { "In" };
-                                if ui.selectable_label(self.selected == Selection::Port(port.id), format!("{prefix} · {}", port.name)).clicked() {
+                                if ui.copyable_selectable_label(self.selected == Selection::Port(port.id), format!("{prefix} · {}", port.name)).clicked() {
                                     picked = Some(Selection::Port(port.id));
                                 }
                             }
@@ -977,8 +985,8 @@ impl Darah {
     fn boundary_panel(&mut self, ui: &mut egui::Ui) {
         if let Some(draft) = &self.drawing_boundary {
             let cancel = ui.horizontal_wrapped(|ui| {
-                ui.strong(format!("Draw boundary · {}", draft.name));
-                ui.weak("Drag from one corner to the opposite corner.");
+                ui.copyable_strong(format!("Draw boundary · {}", draft.name));
+                ui.copyable_weak("Drag from one corner to the opposite corner.");
                 ui.button("Cancel").clicked()
             }).inner || ui.input(|input| input.key_pressed(egui::Key::Escape));
             if cancel { self.drawing_boundary = None; }
@@ -995,9 +1003,9 @@ impl Darah {
         egui::Window::new(title).open(&mut open).collapsible(false).show(ctx, |ui| {
             field(ui, "Boundary name", &mut draft.name);
             if draft.existing.is_none() {
-                ui.label("Parent system");
+                ui.copyable_label("Parent system");
                 scope_picker(ui, &self.project, "boundary_parent", &mut draft.parent, "Overall project");
-                ui.weak("Blocks inside the rectangle that belong to its parent are assigned to this subsystem.");
+                ui.copyable_weak("Blocks inside the rectangle that belong to its parent are assigned to this subsystem.");
             }
             let label = if draft.existing.is_some() { "Rename" } else { "Draw boundary" };
             apply = ui.add_enabled(!draft.name.trim().is_empty(), egui::Button::new(label)).clicked();
@@ -1022,7 +1030,7 @@ impl Darah {
 
     fn inspector(&mut self, ui: &mut egui::Ui) {
         section_title(ui, "02", "Inspector");
-        ui.weak("Configure the selected item.");
+        ui.copyable_weak("Configure the selected item.");
         ui.separator();
         let Some(mut draft) = self.draft.take() else { return };
         let mut next = None;
@@ -1032,10 +1040,10 @@ impl Darah {
             .show(ui, |ui| {
             match &mut draft {
                 Draft::Project { title, purpose, condition } => {
-                    ui.strong("Device definition");
+                    ui.copyable_strong("Device definition");
                     field(ui, "Name", title);
-                    ui.label("Purpose");
-                    ui.text_edit_multiline(purpose);
+                    ui.copyable_label("Purpose");
+                    ui.copyable_text_edit_multiline(purpose);
                     field(ui, "Base operating mode", condition);
                     if ui.button("Apply project details").clicked() {
                         self.edit("Updated project", |p| {
@@ -1047,11 +1055,11 @@ impl Darah {
                     }
                 }
                 Draft::Block(block) => {
-                    ui.strong("Block details");
+                    ui.copyable_strong("Block details");
                     if !self.project.subsystems.is_empty() {
                         let mut scope = self.project.block(block.id).and_then(|saved| saved.subsystem);
                         let before = scope;
-                        ui.label("Subsystem membership");
+                        ui.copyable_label("Subsystem membership");
                         scope_picker(ui, &self.project, "block_scope", &mut scope, "Overall system");
                         if scope != before {
                             self.edit("Assigned block to subsystem", |project| project.assign_subsystem(block.id, scope));
@@ -1069,8 +1077,8 @@ impl Darah {
                     let name = field(ui, "Name", &mut block.name);
                     let role = block.role;
                     role_combo(ui, "edit_role", &mut block.role);
-                    ui.label("Purpose");
-                    let purpose = ui.text_edit_multiline(&mut block.purpose);
+                    ui.copyable_label("Purpose");
+                    let purpose = ui.copyable_text_edit_multiline(&mut block.purpose);
                     let changed = self.project.block(block.id).is_some_and(|saved| saved != &*block);
                     if changed && (name.lost_focus() || purpose.lost_focus() || role != block.role) {
                         let mut block = block.clone();
@@ -1107,7 +1115,7 @@ impl Darah {
                         (output.block == block.id).then_some((output.id, output.name.clone()))
                     }).collect();
                     if !outputs.is_empty() {
-                        ui.label("Converter channels");
+                        ui.copyable_label("Converter channels");
                         for (id, name) in outputs {
                             if ui.link(name).clicked() {
                                 self.select(Selection::Port(id));
@@ -1119,8 +1127,8 @@ impl Darah {
                 }
                 Draft::Port(port, numbers, details, topology, signal) => {
                     let id = port.id;
-                    ui.strong(port.kind.label());
-                    if let Some(block) = self.project.block(port.block) { ui.label(&block.name); }
+                    ui.copyable_strong(port.kind.label());
+                    if let Some(block) = self.project.block(port.block) { ui.copyable_label(&block.name); }
                     if id != 0 && action_button(ui, "Connect this port…") {
                         self.connect_from(id);
                     }
@@ -1142,9 +1150,9 @@ impl Darah {
                             if let Err(error) = details.source(ui, port, numbers, self.voltage_unit) { self.error = Some(error); }
                         }
                         if let Some(input) = inherited.and_then(|input| self.project.port(input)) {
-                            ui.weak(format!("Voltage follows {}. Override it in the protection settings.", self.project.port_label(input)));
+                            ui.copyable_weak(format!("Voltage follows {}. Override it in the protection settings.", self.project.port_label(input)));
                         }
-                        ui.label(if port.kind.source() { "Declared output interval" } else { "Accepted input interval" });
+                        ui.copyable_label(if port.kind.source() { "Declared output interval" } else { "Accepted input interval" });
                         if let Err(error) = unit_picker(ui, "Voltage units", "V", &mut self.voltage_unit, &mut numbers[..2]) {
                             self.error = Some(error);
                         }
@@ -1165,16 +1173,16 @@ impl Darah {
                         let label = if port.kind.source() { "Available current" }
                             else if converted_input { "Additional input current" } else { "Maximum load" };
                         if converted_input && !self.project.dedicated_converter_input(id) {
-                            ui.weak("Downstream current is calculated. Enter only separate input-side draw here. Put the upstream supply rating on its output rail.");
+                            ui.copyable_weak("Downstream current is calculated. Enter only separate input-side draw here. Put the upstream supply rating on its output rail.");
                         }
-                        if self.active_mode.is_some() { ui.weak("Base values are inherited by modes without an override."); }
+                        if self.active_mode.is_some() { ui.copyable_weak("Base values are inherited by modes without an override."); }
                         if self.project.dedicated_converter_input(id) {
-                            ui.weak("Input compatibility only. The power budget derives current from downstream load and converter assumptions.");
+                            ui.copyable_weak("Input compatibility only. The power budget derives current from downstream load and converter assumptions.");
                         } else {
                             let current_field = field(ui, &format!("{label} ({})", self.current_unit.label("A")), &mut numbers[2]);
                             enter_port_field |= field_enter(ui, current_field);
                         }
-                        ui.weak("Decimals are supported to 1 µV or 1 µA. Leave unknown values blank.");
+                        ui.copyable_weak("Decimals are supported to 1 µV or 1 µA. Leave unknown values blank.");
                     } else {
                         field(ui, "Signal contract", &mut port.signal);
                         egui::ComboBox::from_id_salt("shared_port_contract").selected_text(port.contract.and_then(|id| self.project.contract(id))
@@ -1183,7 +1191,7 @@ impl Darah {
                                 for c in &self.project.interfaces.contracts { ui.selectable_value(&mut port.contract, Some(c.id), &c.name); }
                             });
                         if self.detailed_port {
-                            ui.weak("Shared requirements and actual hardware characteristics are kept separately.");
+                            ui.copyable_weak("Shared requirements and actual hardware characteristics are kept separately.");
                             if let Some(contract)=port.contract {
                                 if ui.add_enabled(!self.port_fields_dirty(port, numbers, details, topology, signal),
                                 egui::Button::new("Edit selected shared contract…")).clicked() { self.interface_editor.edit_contract(&self.project,contract); }
@@ -1194,14 +1202,14 @@ impl Darah {
                                     if let Err(error) = self.interface_editor.from_port(&self.project, &saved) { self.error = Some(error); }
                                 }
                             }
-                            ui.weak("Use the same contract name on the source and sink.");
+                            ui.copyable_weak("Use the same contract name on the source and sink.");
                             signal.show(ui, port);
                         }
                     }
                     if self.detailed_port { field(ui, "Assumption or source", &mut port.note); }
                     if id != 0 && self.detailed_port && port.kind == PortKind::Rail {
                         if port.source.is_some() {
-                            ui.weak("Choose Custom source to configure a converter output.");
+                            ui.copyable_weak("Choose Custom source to configure a converter output.");
                         } else if !self.project.interfaces.protections.iter().any(|stage| stage.exit == Some(id)) {
                             let finding = self.findings.iter().find(|f| f.subject == Subject::Conversion(id));
                             topology.show(ui, &self.project, port, finding);
@@ -1250,8 +1258,8 @@ impl Darah {
                 }
                 Draft::Boundary(id) => {
                     if self.project.subsystem(*id).is_some() {
-                        ui.strong(self.project.subsystem_path(*id));
-                        ui.weak("Removing the boundary keeps its blocks and connections.");
+                        ui.copyable_strong(self.project.subsystem_path(*id));
+                        ui.copyable_weak("Removing the boundary keeps its blocks and connections.");
                         if ui.button("Remove boundary").clicked() {
                             self.apply_diagram_action(DiagramAction::RemoveBoundary(*id));
                         }
@@ -1261,19 +1269,19 @@ impl Darah {
                     if let Some(wire) = self.project.binding(*id).cloned() {
                         let (source, target, manual) = (wire.source, wire.target, wire.bend.is_some() || !wire.route.is_empty());
                         self.linked_requirements(ui, &[Target::Port(target), Target::Port(source)], None, false);
-                        ui.heading("Connection");
+                        ui.copyable_heading("Connection");
                         for (role, port) in [("From", source), ("To", target)] {
                             if let Some(port) = self.project.port(port) {
-                                ui.weak(role);
+                                ui.copyable_weak(role);
                                 if ui.link(self.project.port_label(port)).clicked() {
                                     picked_port = Some(port.id);
                                 }
                             }
                         }
                         if let Some(finding) = self.findings.iter().find(|finding| finding.subject == Subject::Binding(*id)) {
-                            ui.strong("Direct interface check");
-                            ui.colored_label(status_color(finding.status), finding.status.label());
-                            ui.label(&finding.detail);
+                            ui.copyable_strong("Direct interface check");
+                            ui.copyable_colored_label(status_color(finding.status), finding.status.label());
+                            ui.copyable_label(&finding.detail);
                             for item in status_ui::ordered_evidence(&finding.evidence) { status_ui::evidence(ui, item); }
                             if ui.button("Open direct check").clicked() {
                                 self.issue = self.findings.iter().position(|item| std::ptr::eq(item, finding));
@@ -1283,11 +1291,11 @@ impl Darah {
                         let wire_checks: Vec<_> = crate::diagram::wire_findings(&wire, &self.findings).collect();
                         if let Some(worst) = wire_checks.iter().map(|finding| finding.status).min_by_key(|status| status_ui::priority(*status)) {
                             ui.separator();
-                            ui.strong("Canvas wire status");
+                            ui.copyable_strong("Canvas wire status");
                             status_ui::badge(ui, worst);
                             for finding in wire_checks.into_iter().filter(|finding| finding.status == worst) {
-                                ui.label(&finding.title);
-                                ui.weak(&finding.detail);
+                                ui.copyable_label(&finding.title);
+                                ui.copyable_weak(&finding.detail);
                                 if let Some(index) = self.findings.iter().position(|item| std::ptr::eq(item, finding)) {
                                     ui.push_id(index, |ui| {
                                         if ui.button("Open design check").clicked() {
@@ -1299,8 +1307,8 @@ impl Darah {
                             }
                         }
                         ui.separator();
-                        ui.weak(if manual { "Manual route" } else { "Automatic route" });
-                        ui.label("Drag a line perpendicular to its direction, or drag a corner handle. Straight sections merge when they meet.");
+                        ui.copyable_weak(if manual { "Manual route" } else { "Automatic route" });
+                        ui.copyable_label("Drag a line perpendicular to its direction, or drag a corner handle. Straight sections merge when they meet.");
                         if manual && ui.button("Reset route").clicked() {
                             self.apply_diagram_action(DiagramAction::RouteWire(*id, Vec::new()));
                         }
@@ -1312,7 +1320,7 @@ impl Darah {
             }
             if matches!(&draft, Draft::Port(..) | Draft::Project { .. }) {
                 ui.add_space(10.0);
-                ui.weak("Apply to save changes to this form.");
+                ui.copyable_weak("Apply to save changes to this form.");
             }
         });
         if self.draft.is_none() { self.draft = next.or(Some(draft)); }
@@ -1320,19 +1328,19 @@ impl Darah {
     }
 
     fn checks_workspace(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Design checks");
+        ui.copyable_heading("Design checks");
         self.review_scope_picker(ui, "checks_scope");
         if let Some(scope) = self.review_scope {
             let interfaces = review::boundary_lines(&self.project, scope, self.mode(), false, false);
             ui.collapsing(format!("Boundary interfaces · {}", interfaces.len()), |ui| {
-                for line in interfaces { ui.label(line); }
+                for line in interfaces { ui.copyable_label(line); }
             });
         }
-        ui.label("Review results from declared design inputs.");
+        ui.copyable_label("Review results from declared design inputs.");
         ui.horizontal_wrapped(|ui| {
             for (status, label) in [(Status::Fail, "failed"), (Status::Warning, "warnings"), (Status::Open, "need input"), (Status::Manual, "manual")] {
                 let count = self.findings.iter().filter(|f| f.status == status && self.project.finding_in_scope(f, self.review_scope)).count();
-                ui.label(RichText::new(format!("{count} {label}")).color(status_color(status)));
+                ui.copyable_label(RichText::new(format!("{count} {label}")).color(status_color(status)));
             }
             ui.checkbox(&mut self.open_only, "Hide passed checks");
         });
@@ -1361,9 +1369,9 @@ impl Darah {
                         .inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
                             ui.set_min_width((width - 20.0).max(0.0));
                             ui.horizontal_wrapped(|ui| {
-                                ui.label(RichText::new(format!("#{}", index + 1)).small().color(MUTED));
-                                ui.label(RichText::new(finding.status.label()).color(color));
-                                ui.label(&finding.title);
+                                ui.copyable_label(RichText::new(format!("#{}", index + 1)).small().color(MUTED));
+                                ui.copyable_label(RichText::new(finding.status.label()).color(color));
+                                ui.copyable_label(&finding.title);
                             });
                         });
                     if active {
@@ -1371,18 +1379,23 @@ impl Darah {
                         ui.painter().rect_filled(egui::Rect::from_min_max(rect.min,
                             egui::pos2(rect.left() + 2.0, rect.bottom())), 0.0, color);
                     }
-                    if ui.interact(frame.response.rect, ui.id().with(("review_row", index)), egui::Sense::click())
-                        .on_hover_cursor(egui::CursorIcon::PointingHand).clicked() { selected = Some(index); }
+                    let row = ui.interact(frame.response.rect, ui.id().with(("review_row", index)), egui::Sense::click())
+                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    row.context_menu(|ui| {
+                        crate::text_ui::copy_item(ui, "Copy check", &format!("{} · {}\n{}", finding.status.label(), finding.title, finding.detail));
+                        crate::text_ui::copy_item(ui, "Copy evidence", &finding.evidence.join("\n"));
+                    });
+                    if row.clicked() { selected = Some(index); }
                 }
-                if !shown { ui.weak("No checks to show with this filter."); }
+                if !shown { ui.copyable_weak("No checks to show with this filter."); }
             });
             egui::ScrollArea::vertical().id_salt("review_detail").show(&mut cols[1], |ui| {
                 if let Some((index, finding)) = selected.and_then(|index| self.findings.get(index).map(|finding| (index, finding))) {
                     let color = status_color(finding.status);
-                    ui.label(RichText::new(format!("Check #{} · Selected result", index + 1)).small().color(MUTED));
-                    ui.heading(&finding.title);
-                    ui.colored_label(color, finding.status.label());
-                    ui.label(&finding.detail);
+                    ui.copyable_label(RichText::new(format!("Check #{} · Selected result", index + 1)).small().color(MUTED));
+                    ui.copyable_heading(&finding.title);
+                    ui.copyable_colored_label(color, finding.status.label());
+                    ui.copyable_label(&finding.detail);
                     ui.separator();
                     if !finding.evidence.is_empty() {
                         egui::CollapsingHeader::new("Evidence").id_salt(("check_evidence", index)).default_open(true).show(ui, |ui| {
@@ -1413,7 +1426,7 @@ impl Darah {
                         }
                     });
                 } else {
-                    ui.weak("Select a check to see what Darah used to evaluate it.");
+                    ui.copyable_weak("Select a check to see what Darah used to evaluate it.");
                 }
             });
         });
@@ -1457,13 +1470,13 @@ impl Darah {
             let finding = review::rail_budget(&self.project, rail, mode, &network);
             let mode_name = mode.map_or(self.project.condition.as_str(), |mode| mode.name.as_str());
             ui.horizontal_wrapped(|ui| {
-                ui.strong(format!("Rail budget · {mode_name}"));
+                ui.copyable_strong(format!("Rail budget · {mode_name}"));
                 close = ui.button("Close current editor").clicked();
             });
-            ui.colored_label(status_color(finding.status), &finding.detail);
+            ui.copyable_colored_label(status_color(finding.status), &finding.detail);
             let limit = review::effective_current(rail, mode).map_or_else(|| "unknown".into(),
                 |ua| self.current_unit.display(ua.into(), "A"));
-            if ui.selectable_label(edit.port == rail.id, format!("Available current · {limit}")).clicked() {
+            if ui.copyable_selectable_label(edit.port == rail.id, format!("Available current · {limit}")).clicked() {
                 switch_port = Some(rail.id);
             }
             egui::ScrollArea::vertical().id_salt("rail_fix_loads").max_height(110.0).show(ui, |ui| {
@@ -1471,13 +1484,13 @@ impl Darah {
                     if let Some(load) = self.project.port(binding.target) {
                         let demand = review::demand_label(network.demand(load.id));
                         let label = format!("{} · {demand}", self.project.port_label(load));
-                        if self.project.dedicated_converter_input(load.id) { ui.weak(label); }
-                        else if ui.selectable_label(edit.port == load.id, label).clicked() { switch_port = Some(load.id); }
+                        if self.project.dedicated_converter_input(load.id) { ui.copyable_weak(label); }
+                        else if ui.copyable_selectable_label(edit.port == load.id, label).clicked() { switch_port = Some(load.id); }
                     }
                 }
                 for channel in self.project.conversions.iter().filter(|c| c.input == rail.id) {
                     if let Some(output) = self.project.port(channel.output) {
-                        ui.weak(format!("{} · calculated channel demand · {}", self.project.port_label(output),
+                        ui.copyable_weak(format!("{} · calculated channel demand · {}", self.project.port_label(output),
                             review::demand_label(network.transfer(output.id))));
                     }
                 }
@@ -1485,9 +1498,9 @@ impl Darah {
             if let Some(port) = self.project.port(edit.port) {
                 let field_name = if port.id == rail.id { "Available current" }
                     else if network.transfer_input(port.id) { "Additional input current" } else { "Maximum load" };
-                ui.label(format!("{} · {field_name} ({})", self.project.port_label(port), self.current_unit.label("A")));
+                ui.copyable_label(format!("{} · {field_name} ({})", self.project.port_label(port), self.current_unit.label("A")));
                 if let Some(mode) = mode {
-                    ui.weak(match mode.current_override(port.id) {
+                    ui.copyable_weak(match mode.current_override(port.id) {
                         None => "Inherits base current. Saving a value creates an override for this mode.",
                         Some(None) => "Current is explicitly unknown in this mode.",
                         Some(Some(_)) => "Uses a current override for this mode.",
@@ -1495,7 +1508,7 @@ impl Darah {
                 }
                 ui.horizontal_wrapped(|ui| {
                     let field = ui.push_id(("budget_current", edit.rail, edit.mode, edit.port), |ui| {
-                        ui.add(egui::TextEdit::singleline(&mut edit.value).desired_width(105.0))
+                        ui.add(egui::TextEdit::singleline(&mut edit.value).desired_width(105.0).with_copy_menu())
                     }).inner;
                     if ui.button("Save current").clicked()
                         || field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -1556,8 +1569,8 @@ impl Darah {
         let id = mode.id;
         let current = mode.current_override(port);
         ui.separator();
-        ui.strong(format!("Current in {}", mode.name));
-        ui.weak(match current {
+        ui.copyable_strong(format!("Current in {}", mode.name));
+        ui.copyable_weak(match current {
             None => "Inherits the base current.",
             Some(None) => "Explicitly unknown in this mode.",
             Some(Some(_)) => "Uses a mode-specific current.",
@@ -1590,7 +1603,7 @@ impl Darah {
         if !self.show_modes { return; }
         let mut open = true;
         egui::Window::new("Operating modes").open(&mut open).default_width(380.0).show(ctx, |ui| {
-            ui.label("Modes inherit base current values. Select a power port to override its load or rail limit.");
+            ui.copyable_label("Modes inherit base current values. Select a power port to override its load or rail limit.");
             self.mode_picker(ui, "managed_mode");
             ui.separator();
             field(ui, "New mode name", &mut self.new_mode_name);
@@ -1632,7 +1645,7 @@ impl Darah {
                 ui.selectable_value(&mut self.power_in_watts, true, "Nominal power (W)");
                 ui.separator();
                 ui.menu_button("Export detailed review", |ui| {
-                    ui.weak("Exports the selected scope and active operating mode.");
+                    ui.copyable_weak("Exports the selected scope and active operating mode.");
                     for format in PowerReportFormat::ALL {
                         if ui.button(format.label()).clicked() {
                             export = Some(format);
@@ -1644,13 +1657,13 @@ impl Darah {
             if let Some(scope) = self.review_scope {
                 let interfaces = review::boundary_lines(&self.project, scope, self.mode(), self.power_in_watts, true);
                 ui.collapsing(format!("Power boundary interfaces · {}", interfaces.len()), |ui| {
-                    for line in interfaces { ui.label(line); }
+                    for line in interfaces { ui.copyable_label(line); }
                 });
             }
             if self.power_in_watts {
-                ui.weak("DC power is recalculated at nominal voltages. The design verdict still uses voltage limits.");
+                ui.copyable_weak("DC power is recalculated at nominal voltages. The design verdict still uses voltage limits.");
             }
-            ui.label("Compare rail limits with local and downstream demand by mode. Select a row to inspect its contributors.");
+            ui.copyable_label("Compare rail limits with local and downstream demand by mode. Select a row to inspect its contributors.");
             let modes: Vec<_> = std::iter::once(None).chain(self.project.modes.iter().map(Some))
                 .map(|mode| (mode, Network::new(&self.project, mode),
                     self.power_in_watts.then(|| Network::nominal(&self.project, mode)))).collect();
@@ -1660,17 +1673,17 @@ impl Darah {
                     && self.review_scope.is_none_or(|scope| self.project.block_in_scope(port.block, scope))) {
                     has_rails = true;
                     ui.separator();
-                    ui.strong(self.project.port_label(rail));
+                    ui.copyable_strong(self.project.port_label(rail));
                     if let Some(channel) = self.project.conversion(rail.id) {
                         if let Some(input) = self.project.port(channel.input) {
                             let kind = channel.kind.label();
-                            ui.label(format!("Fed by {} · {kind}", self.project.port_label(input)));
+                            ui.copyable_label(format!("Fed by {} · {kind}", self.project.port_label(input)));
                         }
                     }
                     if let Some(input) = modes.first().and_then(|(_, network, _)| network.inferred_feeder(rail.id))
                         .and_then(|input| self.project.port(input))
                     {
-                        ui.weak(format!("Possible feed from {} · configure power topology", self.project.port_label(input)));
+                        ui.copyable_weak(format!("Possible feed from {} · configure power topology", self.project.port_label(input)));
                     }
                     for (mode, network, nominal) in &modes {
                         let current = review::rail_budget(&self.project, rail, *mode, network);
@@ -1682,7 +1695,7 @@ impl Darah {
                         let name = mode.map_or(self.project.condition.as_str(), |mode| mode.name.as_str());
                         let mode_id = mode.map(|mode| mode.id);
                         let text = format!("{name} · {}\n{detail}", current.status.label());
-                        if ui.selectable_label(mode_id == self.active_mode,
+                        if ui.copyable_selectable_label(mode_id == self.active_mode,
                             RichText::new(text).color(status_color(current.status))).clicked()
                         {
                             picked = Some((rail.id, mode_id));
@@ -1692,7 +1705,7 @@ impl Darah {
                         }
                     }
                 }
-                if !has_rails { ui.weak("Add a supply rail to compare power budgets."); }
+                if !has_rails { ui.copyable_weak("Add a supply rail to compare power budgets."); }
             });
         });
         self.show_power = open;
@@ -1718,7 +1731,7 @@ impl Darah {
         }).collect();
         let mut opened = false;
         ui.separator();
-        ui.strong(if targets.len() > 1 { "Requirements on endpoints" } else { "Requirements" });
+        ui.copyable_strong(if targets.len() > 1 { "Requirements on endpoints" } else { "Requirements" });
         for entry in entries {
             if ui.link(entry.label()).clicked() {
                 self.spec_editor.open_entry(entry.clone());
@@ -1798,7 +1811,7 @@ impl Darah {
     fn project_prompts(&mut self, ui: &mut egui::Ui, protection: Option<(Id, Id, usize)>) {
         if self.port_exit.is_some() {
             let (apply, discard, stay) = ui.horizontal_wrapped(|ui| {
-                ui.strong("Unsaved port details");
+                ui.copyable_strong("Unsaved port details");
                 (ui.button("Apply and continue").clicked(), ui.button("Discard and continue").clicked(),
                     ui.button("Keep editing").clicked())
             }).inner;
@@ -1843,8 +1856,8 @@ impl Darah {
         let Some((id, block, count)) = protection else { return; };
         let name = self.project.block(block).map_or("Connector", |block| block.name.as_str());
         let (add, configure, dismiss) = ui.horizontal_wrapped(|ui| {
-            ui.strong(format!("{name} · External connector protection"));
-            if count == 0 { ui.weak("Define logical port families first."); }
+            ui.copyable_strong(format!("{name} · External connector protection"));
+            if count == 0 { ui.copyable_weak("Define logical port families first."); }
             let add = count > 0 && ui.button(format!("Add recommended protection ({count})")).clicked();
             let configure = count == 0 && ui.button("Define port families…").clicked();
             (add, configure, ui.button("Dismiss").clicked())
@@ -1894,8 +1907,8 @@ impl Darah {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("DARAH").strong().size(20.0).color(ACCENT));
-            ui.label(RichText::new("SYSTEM DESIGN").small().color(MUTED));
+            ui.copyable_label(RichText::new("DARAH").strong().size(20.0).color(ACCENT));
+            ui.copyable_label(RichText::new("SYSTEM DESIGN").small().color(MUTED));
             ui.separator();
             let ctx = ui.ctx().clone();
             let mut export = None;
@@ -1913,7 +1926,7 @@ impl Darah {
                 }
                 let mut recent = None;
                 ui.menu_button("Open recent", |ui| {
-                    if self.recent.paths.is_empty() { ui.weak("No recent projects."); }
+                    if self.recent.paths.is_empty() { ui.copyable_weak("No recent projects."); }
                     for path in &self.recent.paths {
                         let name = storage::project_name(path).unwrap_or("Project");
                         if ui.button(name).on_hover_text(path.to_string_lossy().into_owned()).clicked() {
@@ -1942,7 +1955,7 @@ impl Darah {
                     });
                 }
                 ui.menu_button("Export review", |ui| {
-                    ui.weak(self.review_scope.map_or_else(|| "Overall system".into(), |id| self.project.subsystem_path(id)));
+                    ui.copyable_weak(self.review_scope.map_or_else(|| "Overall system".into(), |id| self.project.subsystem_path(id)));
                     for format in ReviewFormat::ALL {
                         if ui.button(format.label()).clicked() {
                             review_export = Some(format);
@@ -1955,7 +1968,7 @@ impl Darah {
             if let Some(format) = review_export { self.export_review(format); }
             if let Some(elapsed) = self.saved_at.map(|time| time.elapsed()) {
                 if elapsed < Duration::from_secs(4) {
-                    ui.colored_label(ACCENT, "✓ Saved");
+                    ui.copyable_colored_label(ACCENT, "✓ Saved");
                     ctx.request_repaint_after(Duration::from_secs(4) - elapsed);
                 }
             }
@@ -2001,7 +2014,7 @@ impl Darah {
                 if ui.button(label).on_hover_text("Check for Darah updates").clicked() { self.updater.open(&ctx, false); }
             }
             ui.separator();
-            ui.label(format!("{}{}", self.project.title, if self.dirty() { " *" } else { "" }));
+            ui.copyable_label(format!("{}{}", self.project.title, if self.dirty() { " *" } else { "" }));
         });
     }
 
@@ -2035,14 +2048,14 @@ impl Darah {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add_space(42.0);
             ui.set_max_width(700.0);
-            ui.label(RichText::new("DARAH EDA  /  SYSTEM DESIGN").small().strong().color(ACCENT));
-            ui.label(RichText::new("Define your system before\ndrawing the schematic.").size(37.0).strong());
-            ui.label(RichText::new("Describe what each block needs and provides. Connect the blocks, then inspect the power budget and any open requirements.").size(17.0).color(MUTED));
+            ui.copyable_label(RichText::new("DARAH EDA  /  SYSTEM DESIGN").small().strong().color(ACCENT));
+            ui.copyable_label(RichText::new("Define your system before\ndrawing the schematic.").size(37.0).strong());
+            ui.copyable_label(RichText::new("Describe what each block needs and provides. Connect the blocks, then inspect the power budget and any open requirements.").size(17.0).color(MUTED));
             ui.add_space(14.0);
             if action_button(ui, "Start guided monitor example") {
                 self.request(DocumentAction::Monitor, &ctx);
             }
-            ui.weak("Four blocks, one power rail, and a new load that exceeds its limit.");
+            ui.copyable_weak("Four blocks, one power rail, and a new load that exceeds its limit.");
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 if ui.button("Start a blank project").clicked() {
@@ -2060,7 +2073,7 @@ impl Darah {
                 ("03", "Review checks", "Select a result to see what passed, what failed, and which blocks contributed."),
             ] {
                 section_title(ui, number, title);
-                ui.label(description);
+                ui.copyable_label(description);
                 ui.add_space(4.0);
             }
         });
@@ -2089,16 +2102,16 @@ impl Darah {
         let passes = budget.is_some_and(|finding| finding.status == Status::Pass);
 
         ui.horizontal(|ui| {
-            ui.label(RichText::new("GUIDED EXAMPLE").small().strong().color(ACCENT));
+            ui.copyable_label(RichText::new("GUIDED EXAMPLE").small().strong().color(ACCENT));
             if ui.small_button("Dismiss").clicked() { self.guide = None; }
         });
         if self.guide.is_none() { return; }
         if let Some(budget) = budget {
-            ui.label(RichText::new(&budget.detail).color(status_color(budget.status)));
+            ui.copyable_label(RichText::new(&budget.detail).color(status_color(budget.status)));
         }
         match (load, bound, passes) {
             (None, _, _) => {
-                ui.label("1 of 3 · Add a 110 mA alert output to the monitor.");
+                ui.copyable_label("1 of 3 · Add a 110 mA alert output to the monitor.");
                 if action_button(ui, "Add alert output") {
                     if let Some(alert) = self.edit("Added alert output", Project::add_alert) {
                         if let Some(guide) = &mut self.guide { guide.alert = Some(alert); }
@@ -2107,7 +2120,7 @@ impl Darah {
                 }
             }
             (Some(load), false, _) => {
-                ui.label("2 of 3 · Preview the alert's power connection. Apply it to see the overload in the design checks.");
+                ui.copyable_label("2 of 3 · Preview the alert's power connection. Apply it to see the overload in the design checks.");
                 if action_button(ui, "Preview alert → 3V3") {
                     self.select(Selection::Port(load));
                     self.connect_from(load);
@@ -2115,11 +2128,11 @@ impl Darah {
                 }
             }
             (Some(_), true, false) => {
-                ui.label("3 of 3 · In the Inspector, set Available current to 350 mA and click Apply port details.");
+                ui.copyable_label("3 of 3 · In the Inspector, set Available current to 350 mA and click Apply port details.");
                 if ui.button("Show rail and load breakdown").clicked() { self.focus_rail(rail); }
             }
             (Some(_), true, true) => {
-                ui.label("Power budget satisfied. The alert's control input is a separate requirement. Find it under Design checks.");
+                ui.copyable_label("Power budget satisfied. The alert's control input is a separate requirement. Find it under Design checks.");
                 if ui.button("Show load breakdown").clicked() { self.focus_rail(rail); }
             }
         }
@@ -2161,7 +2174,7 @@ impl Darah {
         egui::Window::new("Commands and project search").collapsible(false).resizable(false).open(&mut open)
             .anchor(egui::Align2::CENTER_TOP, [0.0, 75.0]).show(ctx, |ui| {
                 let response = ui.add(egui::TextEdit::singleline(&mut palette.query)
-                    .hint_text("Find a command, block, or port").desired_width(370.0));
+                    .hint_text("Find a command, block, or port").desired_width(370.0).with_copy_menu());
                 if palette.focus { response.request_focus(); palette.focus = false; }
                 let available = [
                     (PaletteAction::AddBlock, "Add block", true),
@@ -2199,7 +2212,7 @@ impl Darah {
                             if ui.button(label).clicked() { action = Some(command); }
                         }
                     });
-                    if first.is_none() { ui.weak("No matches."); }
+                    if first.is_none() { ui.copyable_weak("No matches."); }
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::Enter)) { action = action.or(first); }
             });
@@ -2240,7 +2253,7 @@ impl Darah {
     fn add_block_panel(&mut self, ui: &mut egui::Ui) {
         if let Some(draft) = self.place_block.take() {
             let canceled = ui.horizontal_wrapped(|ui| {
-                ui.strong(format!("Place {} on the canvas", draft.name));
+                ui.copyable_strong(format!("Place {} on the canvas", draft.name));
                 ui.button("Cancel placement").clicked()
             }).inner || ui.input(|input| input.key_pressed(egui::Key::Escape));
             if !canceled { self.place_block = Some(draft); }
@@ -2251,7 +2264,7 @@ impl Darah {
         let mut place = false;
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.strong("Add block");
+                ui.copyable_strong("Add block");
                 if ui.button("Cancel").clicked() { cancel = true; }
                 if draft.kind.is_some() && ui.button("Change preset").clicked() {
                     draft.kind = None;
@@ -2260,7 +2273,7 @@ impl Darah {
             });
             let Some(kind) = draft.kind else {
                 let query = ui.add(egui::TextEdit::singleline(&mut draft.query)
-                    .hint_text("Search block types and connector presets"));
+                    .hint_text("Search block types and connector presets").with_copy_menu());
                 if draft.focus { query.request_focus(); draft.focus = false; }
                 let mut first = None;
                 egui::ScrollArea::vertical().id_salt("block_preset_results").max_height(145.0).show(ui, |ui| {
@@ -2268,7 +2281,7 @@ impl Darah {
                         first.get_or_insert(kind);
                         if ui.button(label).clicked() { draft.kind = Some(kind); }
                     }
-                    if first.is_none() { ui.weak("No matching presets."); }
+                    if first.is_none() { ui.copyable_weak("No matching presets."); }
                 });
                 if query.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
                     draft.kind = draft.kind.or(first);
@@ -2282,8 +2295,8 @@ impl Darah {
                 BlockType::Functional(_) => { ui.checkbox(&mut draft.template, "Include starter ports"); }
                 BlockType::Connector(index) => {
                     let preset = &interface_catalog::PRESETS[index];
-                    ui.label(format!("{} · {}", preset.family, preset.variant));
-                    ui.weak(interface_catalog::family_preview(index));
+                    ui.copyable_label(format!("{} · {}", preset.family, preset.variant));
+                    ui.copyable_weak(interface_catalog::family_preview(index));
                     ui.horizontal_wrapped(|ui| {
                         egui::ComboBox::from_id_salt("place_connector_exposure")
                             .selected_text(draft.exposure.label()).show_ui(ui, |ui| {
@@ -2293,7 +2306,7 @@ impl Darah {
                             });
                         ui.checkbox(&mut draft.incoming, "Into board");
                         if preset.count == 0 {
-                            ui.label("Contacts");
+                            ui.copyable_label("Contacts");
                             ui.add(egui::DragValue::new(&mut draft.contacts).range(1..=1024));
                         }
                     });
@@ -2302,7 +2315,7 @@ impl Darah {
                     egui::ComboBox::from_id_salt("new_power_topology").height(330.0)
                         .selected_text(draft.power_topology.map_or("Select topology", power::Kind::label))
                         .show_ui(ui, |ui| power_ui::topology_options(ui, &mut draft.power_topology));
-                    ui.weak("Set input compatibility and the output rating after placement. Efficiency or ground current goes in the output port's Details.");
+                    ui.copyable_weak("Set input compatibility and the output rating after placement. Efficiency or ground current goes in the output port's Details.");
                     ready &= draft.power_topology.is_some();
                 }
                 BlockType::SignalConversion => {
@@ -2363,19 +2376,19 @@ impl Darah {
         let mut cancel = false;
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.strong("Review proposed connection");
+                ui.copyable_strong("Review proposed connection");
                 cancel = ui.button("Cancel").clicked();
             });
             match review::connection_preview(&self.project, self.active_mode, from, to, &self.findings) {
                 Ok(findings) => {
                     egui::ScrollArea::vertical().id_salt("pending_link_checks").max_height(115.0).show(ui, |ui| {
                         for finding in findings.iter().filter(|finding| finding.status != Status::Pass) {
-                            ui.label(format!("{} · {}", finding.title, finding.detail));
+                            ui.copyable_label(format!("{} · {}", finding.title, finding.detail));
                         }
                     });
                     keep = ui.button("Keep connection for planning").clicked();
                 }
-                Err(error) => { ui.colored_label(status_color(Status::Fail), error); }
+                Err(error) => { ui.copyable_colored_label(status_color(Status::Fail), error); }
             }
         });
         if cancel || (keep && self.commit_connection(from, to)) { self.pending_link = None; }
@@ -2389,9 +2402,9 @@ impl Darah {
         let source_label = self.project.port_label(port);
         egui::Window::new("Connect port").collapsible(false).open(&mut open).default_width(480.0)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-                ui.strong(source_label);
+                ui.copyable_strong(source_label);
                 let response = ui.add(egui::TextEdit::singleline(&mut picker.query)
-                    .hint_text("Search blocks or ports").desired_width(f32::INFINITY));
+                    .hint_text("Search blocks or ports").desired_width(f32::INFINITY).with_copy_menu());
                 if picker.focus { response.request_focus(); picker.focus = false; }
                 let mut shown = false;
                 egui::ScrollArea::vertical().max_height(175.0).show(ui, |ui| {
@@ -2401,27 +2414,27 @@ impl Darah {
                         let label = self.project.port_label(other);
                         if matches_search(&label, &picker.query) {
                             shown = true;
-                            if ui.selectable_label(picker.target == Some(other.id), label).clicked() {
+                            if ui.copyable_selectable_label(picker.target == Some(other.id), label).clicked() {
                                 picker.target = Some(other.id);
                             }
                         }
                     }
                 });
-                if !shown { ui.weak("No matching ports. Add a port with the opposite role first."); }
-                else if picker.target.is_none() { ui.weak("Choose a port above to preview the connection."); }
+                if !shown { ui.copyable_weak("No matching ports. Add a port with the opposite role first."); }
+                else if picker.target.is_none() { ui.copyable_weak("Choose a port above to preview the connection."); }
                 if let Some(target) = picker.target {
                     ui.separator();
-                    ui.strong("Connection preview");
+                    ui.copyable_strong("Connection preview");
                     match review::connection_preview(&self.project, self.active_mode, picker.from, target, &self.findings) {
                         Ok(findings) => {
                             for finding in findings {
-                                if !matches!(finding.subject, Subject::Binding(_)) { ui.strong(&finding.title); }
-                                ui.label(RichText::new(finding.status.label()).color(status_color(finding.status)));
-                                ui.label(finding.detail);
+                                if !matches!(finding.subject, Subject::Binding(_)) { ui.copyable_strong(&finding.title); }
+                                ui.copyable_label(RichText::new(finding.status.label()).color(status_color(finding.status)));
+                                ui.copyable_label(finding.detail);
                             }
                             add = action_button(ui, "Connect ports");
                         }
-                        Err(error) => { ui.colored_label(status_color(Status::Fail), error); }
+                        Err(error) => { ui.copyable_colored_label(status_color(Status::Fail), error); }
                     }
                 }
             });
@@ -2433,13 +2446,13 @@ impl Darah {
         let Some(action) = self.pending.clone() else { return };
         egui::Window::new("Unsaved project").collapsible(false).resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-                ui.label("Save changes to this project before continuing?");
+                ui.copyable_label("Save changes to this project before continuing?");
                 ui.horizontal(|ui| {
                     if ui.button("Save").clicked() && self.save(false) { self.run_action(action.clone(), ctx); }
                     if ui.button("Discard").clicked() { self.run_action(action, ctx); }
                     if ui.button("Cancel").clicked() { self.pending = None; }
                 });
-                if let Some(error) = &self.error { ui.colored_label(status_color(Status::Fail), error); }
+                if let Some(error) = &self.error { ui.copyable_colored_label(status_color(Status::Fail), error); }
             });
     }
 }
@@ -2526,8 +2539,8 @@ impl eframe::App for Darah {
             ui.add_enabled_ui(enabled, |ui| self.toolbar(ui));
         });
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            if let Some(error) = &self.error { ui.colored_label(status_color(Status::Fail), error); }
-            else { ui.label(&self.status); }
+            if let Some(error) = &self.error { ui.copyable_colored_label(status_color(Status::Fail), error); }
+            else { ui.copyable_label(&self.status); }
         });
         egui::TopBottomPanel::top("workspaces").show(ctx, |ui| {
             ui.add_enabled_ui(enabled, |ui| self.workspace_tabs(ui));
@@ -2627,8 +2640,8 @@ fn scope_picker(ui: &mut egui::Ui, project: &Project, id: &str, value: &mut Opti
 
 fn section_title(ui: &mut egui::Ui, number: &str, title: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(number).small().strong().color(ACCENT));
-        ui.label(RichText::new(title).strong().size(16.0));
+        ui.copyable_label(RichText::new(number).small().strong().color(ACCENT));
+        ui.copyable_label(RichText::new(title).strong().size(16.0));
     });
 }
 
@@ -2641,8 +2654,8 @@ fn field_enter(ui: &egui::Ui, response: egui::Response) -> bool {
 }
 
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String) -> egui::Response {
-    ui.label(label);
-    ui.add(egui::TextEdit::singleline(value).hint_text(label).desired_width(f32::INFINITY))
+    ui.copyable_label(label);
+    ui.add(egui::TextEdit::singleline(value).hint_text(label).desired_width(f32::INFINITY).with_copy_menu())
 }
 
 fn role_combo(ui: &mut egui::Ui, id: &str, role: &mut Role) {
@@ -2654,7 +2667,7 @@ fn role_combo(ui: &mut egui::Ui, id: &str, role: &mut Role) {
 fn unit_picker(ui: &mut egui::Ui, label: &str, symbol: &str, scale: &mut Scale, fields: &mut [String]) -> Result<()> {
     let mut chosen = *scale;
     ui.horizontal(|ui| {
-        ui.label(label);
+        ui.copyable_label(label);
         egui::ComboBox::from_id_salt(label).selected_text(scale.label(symbol)).show_ui(ui, |ui| {
             for option in Scale::ALL {
                 ui.selectable_value(&mut chosen, option, option.label(symbol));

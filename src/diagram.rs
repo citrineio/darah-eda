@@ -1,3 +1,4 @@
+use crate::text_ui::{CopyableText as _};
 use crate::{
     model::{Binding, Block, BlockPosition, BlockSize, Id, Port, PortKind, Project, Role},
     wires,
@@ -628,19 +629,19 @@ impl Diagram {
         ui.horizontal_wrapped(|ui| {
             if ui.button("+ Add block").clicked() { toolbar_action = Some(DiagramAction::AddBlock); }
             if ui.button("Fit view").clicked() { self.fit = true; }
-            if ui.selectable_label(self.port_layout, "Move ports")
+            if ui.copyable_selectable_label(self.port_layout, "Move ports")
                 .on_hover_text("Drag a port dot to reposition it on the block edge. Turn off to draw wires.").clicked()
             {
                 self.port_layout = !self.port_layout;
             }
-            ui.weak(format!("{:.0}%", self.zoom * 100.0));
-            ui.colored_label(SIGNAL, "Signal labels");
-            ui.colored_label(POWER, "Power labels");
+            ui.copyable_weak(format!("{:.0}%", self.zoom * 100.0));
+            ui.copyable_colored_label(SIGNAL, "Signal labels");
+            ui.copyable_colored_label(POWER, "Power labels");
             ui.separator();
             ui.menu_button("Grid", |ui| {
                 ui.checkbox(&mut self.show_grid, "Show grid");
                 ui.checkbox(&mut self.snap, "Snap while dragging");
-                ui.label("Spacing (canvas units)");
+                ui.copyable_label("Spacing (canvas units)");
                 for spacing in [10, 25, 50, 100] {
                     ui.radio_value(&mut self.grid_spacing, spacing, spacing.to_string());
                 }
@@ -651,7 +652,7 @@ impl Diagram {
             });
             ui.add_enabled_ui(self.selected_blocks.len() >= 2, |ui| {
                 ui.menu_button("Align", |ui| {
-                    ui.weak("The purple block stays in place as the reference.");
+                    ui.copyable_weak("The purple block stays in place as the reference.");
                     for (choice, label) in Alignment::OPTIONS {
                         if ui.button(label).clicked() {
                             alignment = Some(choice);
@@ -662,7 +663,7 @@ impl Diagram {
             });
             ui.add_enabled_ui(self.selected_blocks.len() >= 3, |ui| {
                 ui.menu_button("Distribute", |ui| {
-                    ui.weak("Equal gaps between blocks. Outer blocks stay in place.");
+                    ui.copyable_weak("Equal gaps between blocks. Outer blocks stay in place.");
                     for (axis, label) in [(Axis::Horizontal, "Horizontally"), (Axis::Vertical, "Vertically")] {
                         if ui.button(label).clicked() {
                             distribution = Some(axis);
@@ -680,19 +681,19 @@ impl Diagram {
                 }
             }
             if self.selected_blocks.len() >= 2 {
-                ui.weak(format!("{} selected", self.selected_blocks.len()));
+                ui.copyable_weak(format!("{} selected", self.selected_blocks.len()));
             }
         });
         ui.horizontal_wrapped(|ui| {
             match selection {
                 Selection::Block(id) => {
                     if let Some(block) = project.block(id) {
-                        if self.selected_blocks.len() <= 1 { ui.strong(&block.name); }
+                        if self.selected_blocks.len() <= 1 { ui.copyable_strong(&block.name); }
                         if let Some(action) = add_port_menu(ui, id) { toolbar_action = Some(action); }
                     }
                 }
                 Selection::Port(id) => {
-                    if let Some(port) = project.port(id) { ui.strong(project.port_label(port)); }
+                    if let Some(port) = project.port(id) { ui.copyable_strong(project.port_label(port)); }
                     if ui.button("Connect…").clicked() { toolbar_action = Some(DiagramAction::Connect(id)); }
                     if project.port(id).is_some_and(|port| port.layout.is_some())
                         && ui.button("Reset port placement").clicked()
@@ -701,11 +702,11 @@ impl Diagram {
                     }
                 }
                 Selection::Boundary(id) => {
-                    if let Some(scope) = project.subsystem(id) { ui.strong(&scope.name); }
+                    if let Some(scope) = project.subsystem(id) { ui.copyable_strong(&scope.name); }
                     if ui.button("Remove boundary").clicked() { toolbar_action = Some(DiagramAction::RemoveBoundary(id)); }
                 }
                 Selection::Wire(id) => {
-                    ui.strong("Connection");
+                    ui.copyable_strong("Connection");
                     if ui.button("Disconnect").clicked() { toolbar_action = Some(DiagramAction::Disconnect(id)); }
                     if project.binding(id).is_some_and(|wire| wire.bend.is_some() || !wire.route.is_empty())
                         && ui.button("Reset route").clicked()
@@ -715,16 +716,16 @@ impl Diagram {
                 }
                 _ => {}
             }
-            if self.port_layout { ui.weak("Drag any port dot to move it along a block edge."); }
-            else { ui.weak("Drag a port dot to connect. Shift-drag the dot or drag its square to move it."); }
+            if self.port_layout { ui.copyable_weak("Drag any port dot to move it along a block edge."); }
+            else { ui.copyable_weak("Drag a port dot to connect. Shift-drag the dot or drag its square to move it."); }
         });
         ui.horizontal_wrapped(|ui| {
-            ui.weak("Wire / dot health:");
+            ui.copyable_weak("Wire / dot health:");
             for (status, label) in [(Status::Fail, "Failed"), (Status::Warning, "Warning"),
                 (Status::Open, "Needs input"), (Status::Manual, "Manual review"), (Status::Pass, "Within scope")] {
-                ui.colored_label(status_ui::color(status), label);
+                ui.copyable_colored_label(status_ui::color(status), label);
             }
-            ui.weak("Left-drag empty space to select blocks. Shift-click adds or removes blocks. Right- or middle-drag to pan.");
+            ui.copyable_weak("Left-drag empty space to select blocks. Shift-click adds or removes blocks. Right- or middle-drag to pan.");
         });
         let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
         let viewport = response.rect;
@@ -1127,11 +1128,11 @@ impl Diagram {
                         match preview {
                             Ok(checks) => {
                                 for check in checks.iter().take(3) {
-                                    ui.colored_label(status_ui::color(check.status), check.status.label());
-                                    ui.label(&check.detail);
+                                    ui.copyable_colored_label(status_ui::color(check.status), check.status.label());
+                                    ui.copyable_label(&check.detail);
                                 }
                             }
-                            Err(error) => { ui.colored_label(status_ui::color(Status::Fail), error); }
+                            Err(error) => { ui.copyable_colored_label(status_ui::color(Status::Fail), error); }
                         }
                     });
                 });
@@ -1285,17 +1286,17 @@ impl Diagram {
         if let Some(binding) = hovered_wire.and_then(|id| project.binding(id)) {
             response.clone().on_hover_ui(|ui| {
                 let kind = project.port(binding.source).map_or("Connection", |p| if p.kind.power() { "Power connection" } else { "Signal connection" });
-                ui.strong(kind);
+                ui.copyable_strong(kind);
                 if let Some(status) = health.bindings.get(&binding.id) { status_ui::badge(ui, *status); }
                 for finding in wire_findings(binding, findings)
-                    .filter(|finding| health.bindings.get(&binding.id) == Some(&finding.status)).take(3) { ui.label(&finding.title); ui.label(&finding.detail); }
-                ui.weak("Click the wire to inspect it; open Design checks for individual results.");
+                    .filter(|finding| health.bindings.get(&binding.id) == Some(&finding.status)).take(3) { ui.copyable_label(&finding.title); ui.copyable_label(&finding.detail); }
+                ui.copyable_weak("Click the wire to inspect it; open Design checks for individual results.");
             });
         } else if let Some(port) = hover_port.and_then(|id| project.port(id)) {
             response.clone().on_hover_ui(|ui| {
-                ui.strong(project.port_label(port)); ui.label(port.kind.label());
+                ui.copyable_strong(project.port_label(port)); ui.copyable_label(port.kind.label());
                 if let Some(status) = health.ports.get(&port.id) { status_ui::badge(ui, *status); }
-                ui.weak("Dot color shows the worst related check. Labels identify signal or power.");
+                ui.copyable_weak("Dot color shows the worst related check. Labels identify signal or power.");
             });
         }
         if let (Some((name, ports)), Some(point)) = (block_preview, placement_point) {
@@ -1341,6 +1342,13 @@ impl Diagram {
         response.context_menu(|ui| {
             match self.context_target {
                 Selection::Block(id) if project.block(id).is_some() => {
+                    let block = project.block(id).unwrap();
+                    crate::text_ui::copy_item(ui, "Copy block name", &block.name);
+                    let ports = project.block_ports(id).map(|port| format!("{} · {}", port.name, port.kind.label()))
+                        .collect::<Vec<_>>().join("\n");
+                    let block_text = format!("{}\n{}\n{}\n{}", block.name, block.role.label(), block.purpose, ports);
+                    crate::text_ui::copy_item(ui, "Copy block text", block_text.trim());
+                    ui.separator();
                     let targets = if self.selected_blocks.contains(&id) {
                         self.selected_blocks.clone()
                     } else {
@@ -1368,6 +1376,11 @@ impl Diagram {
                     }
                 }
                 Selection::Port(id) if project.port(id).is_some() => {
+                    let port = project.port(id).unwrap();
+                    crate::text_ui::copy_item(ui, "Copy port label", &project.port_label(port));
+                    let port_text = format!("{}\n{}\n{}", project.port_label(port), port.kind.label(), port.note);
+                    crate::text_ui::copy_item(ui, "Copy port text", port_text.trim());
+                    ui.separator();
                     if ui.button("Connect this port…").clicked() { action = Some(DiagramAction::Connect(id)); }
                     if ui.button("Move ports on canvas").clicked() {
                         self.port_layout = true;
@@ -1381,9 +1394,16 @@ impl Diagram {
                     }
                 }
                 Selection::Boundary(id) if project.subsystem(id).is_some() => {
+                    crate::text_ui::copy_item(ui, "Copy subsystem path", &project.subsystem_path(id));
+                    ui.separator();
                     if ui.button("Remove boundary").clicked() { action = Some(DiagramAction::RemoveBoundary(id)); }
                 }
                 Selection::Wire(id) if project.binding(id).is_some() => {
+                    let wire = project.binding(id).unwrap();
+                    if let (Some(source), Some(target)) = (project.port(wire.source), project.port(wire.target)) {
+                        crate::text_ui::copy_item(ui, "Copy connection", &format!("{} → {}", project.port_label(source), project.port_label(target)));
+                        ui.separator();
+                    }
                     if ui.button("Inspect connection").clicked() { action = Some(DiagramAction::Inspect(Selection::Wire(id))); }
                     if project.binding(id).is_some_and(|wire| wire.bend.is_some() || !wire.route.is_empty())
                         && ui.button("Reset route").clicked()
@@ -1393,6 +1413,8 @@ impl Diagram {
                     if ui.button("Disconnect").clicked() { action = Some(DiagramAction::Disconnect(id)); }
                 }
                 _ => {
+                    crate::text_ui::copy_item(ui, "Copy project name", &project.title);
+                    ui.separator();
                     if ui.button("Add block…").clicked() { action = Some(DiagramAction::AddBlock); }
                     if ui.button("Fit diagram").clicked() {
                         self.refit();

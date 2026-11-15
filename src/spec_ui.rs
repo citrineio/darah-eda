@@ -1,3 +1,4 @@
+use crate::text_ui::{CopyableText as _, TextEditCopyMenu as _};
 use crate::{model::{Goal, Id, Project, Result}, review::{Finding, Status, Subject}, spec::{self, Data, Entry, Rule, Target}, units::Scale};
 use eframe::egui;
 
@@ -83,11 +84,11 @@ impl Editor {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, project: &Project, findings: &[Finding]) -> Result<Option<Action>> {
-        ui.heading("Requirements");
-        ui.label("Define what the system must do and how to verify it.");
+        ui.copyable_heading("Requirements");
+        ui.copyable_label("Define what the system must do and how to verify it.");
         ui.horizontal_wrapped(|ui| {
             for tab in Tab::ALL {
-                if ui.selectable_label(self.tab == tab, tab.label()).clicked() && self.tab != tab {
+                if ui.copyable_selectable_label(self.tab == tab, tab.label()).clicked() && self.tab != tab {
                     self.tab = tab;
                     self.select(None);
                 }
@@ -126,7 +127,7 @@ impl Editor {
                             });
                         state.map_or(label.clone(), |state| format!("{label}\n{state}"))
                     } else { label };
-                    if ui.selectable_label(selected, label).clicked() {
+                    if ui.copyable_selectable_label(selected, label).clicked() {
                         self.select(Some(entry.clone()));
                     }
                 }
@@ -134,12 +135,12 @@ impl Editor {
                     for goal in &project.goals {
                         empty = false;
                         let selected = matches!(&self.draft, Some(Draft::Goal(draft)) if draft.id == goal.id);
-                        if ui.selectable_label(selected, format!("{} · {} · {}", spec::requirement_reference(goal.reference), goal_scope(project, goal), goal.description)).clicked() {
+                        if ui.copyable_selectable_label(selected, format!("{} · {} · {}", spec::requirement_reference(goal.reference), goal_scope(project, goal), goal.description)).clicked() {
                             self.open_goal(goal.clone());
                         }
                     }
                 }
-                if empty { ui.weak("No entries yet."); }
+                if empty { ui.copyable_weak("No entries yet."); }
             });
             let Some(draft) = &mut self.draft else {
                 columns[1].weak("Select an entry to see its details.");
@@ -148,7 +149,7 @@ impl Editor {
             egui::ScrollArea::vertical().id_salt("spec_entry_form").show(&mut columns[1], |ui| {
                 match draft {
                     Draft::Entry(entry) => {
-                        if entry.id != 0 { ui.heading(entry.label()); }
+                        if entry.id != 0 { ui.copyable_heading(entry.label()); }
                         if let Some(saved) = project.spec_entry(entry.id) {
                             if let Data::Pin { port: Some(id), .. } = &saved.data {
                                 if ui.button(format!("Open {}", spec::target_name(project, Some(Target::Port(*id))))).clicked() {
@@ -156,8 +157,8 @@ impl Editor {
                                 }
                             }
                             if let Data::Requirement { target, rule, evidence, .. } = &saved.data {
-                                ui.label(format!("Design check · {}", spec::check(project, *target, rule)));
-                                ui.label(if evidence.trim().is_empty() {
+                                ui.copyable_label(format!("Design check · {}", spec::check(project, *target, rule)));
+                                ui.copyable_label(if evidence.trim().is_empty() {
                                     "Verification evidence · Pending"
                                 } else {
                                     "Verification evidence · Reference recorded"
@@ -180,12 +181,12 @@ impl Editor {
                         }
                     }
                     Draft::Goal(goal) => {
-                        ui.heading(goal_scope(project, goal));
-                        ui.strong(spec::requirement_reference(goal.reference));
+                        ui.copyable_heading(goal_scope(project, goal));
+                        ui.copyable_strong(spec::requirement_reference(goal.reference));
                         multiline(ui, "Requirement", &mut goal.description);
                         field(ui, "Source or assumption", &mut goal.note);
                         multiline(ui, "How to verify", &mut goal.method);
-                        ui.label("Responsible blocks");
+                        ui.copyable_label("Responsible blocks");
                         for block in &project.blocks {
                             ui.push_id(block.id, |ui| {
                                 let mut checked = goal.responsible.contains(&block.id);
@@ -227,7 +228,7 @@ fn form(ui: &mut egui::Ui, project: &Project, entry: &mut Entry, values: &mut [S
                     _ => None,
                 }));
             pick(ui, "Assigned to", target, "Unassigned", targets);
-            ui.label("Design check");
+            ui.copyable_label("Design check");
             let previous = match rule { Rule::Manual => 0, Rule::InputVoltage { .. } => 1, Rule::InputPower { .. } => 2 };
             let mut kind = previous;
             let labels = ["Review manually", "Input voltage coverage", "Maximum input power"];
@@ -274,7 +275,7 @@ fn form(ui: &mut egui::Ui, project: &Project, entry: &mut Entry, values: &mut [S
             field(ui, "Physical pin designation", number);
             field(ui, "Function (blank means TBD)", function);
             pick(ui, "Logical port", port, "Unmapped", project.ports.iter().map(|p| (p.id, project.port_label(p))));
-            ui.weak(spec::pin_status(*connector, function, *port));
+            ui.copyable_weak(spec::pin_status(*connector, function, *port));
         }
         Data::State { name, initial, outputs } => {
             field(ui, "State name", name);
@@ -291,7 +292,7 @@ fn form(ui: &mut egui::Ui, project: &Project, entry: &mut Entry, values: &mut [S
             field(ui, "Trigger", trigger);
             multiline(ui, "Guard (blank means TBD)", guard);
             multiline(ui, "Action (blank means TBD)", action);
-            ui.weak(spec::transition_status(*from, *to, guard, action));
+            ui.copyable_weak(spec::transition_status(*from, *to, guard, action));
         }
     }
     Ok(())
@@ -300,7 +301,7 @@ fn form(ui: &mut egui::Ui, project: &Project, entry: &mut Entry, values: &mut [S
 fn pick<T: Copy + Eq>(ui: &mut egui::Ui, label: &str, selected: &mut Option<T>, empty: &str, options: impl Iterator<Item = (T, String)>) {
     let options: Vec<_> = options.collect();
     let text = options.iter().find(|(value, _)| Some(*value) == *selected).map_or(empty, |(_, name)| name);
-    ui.label(label);
+    ui.copyable_label(label);
     egui::ComboBox::from_id_salt(label).selected_text(text).show_ui(ui, |ui| {
         ui.selectable_value(selected, None, empty);
         for (value, name) in &options { ui.selectable_value(selected, Some(*value), name); }
@@ -308,13 +309,13 @@ fn pick<T: Copy + Eq>(ui: &mut egui::Ui, label: &str, selected: &mut Option<T>, 
 }
 
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
-    ui.label(label);
-    ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
+    ui.copyable_label(label);
+    ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY).with_copy_menu());
 }
 
 fn multiline(ui: &mut egui::Ui, label: &str, value: &mut String) {
-    ui.label(label);
-    ui.add(egui::TextEdit::multiline(value).desired_rows(2).desired_width(f32::INFINITY));
+    ui.copyable_label(label);
+    ui.add(egui::TextEdit::multiline(value).desired_rows(2).desired_width(f32::INFINITY).with_copy_menu());
 }
 
 fn number(value: &str, label: &str) -> Result<u64> {
